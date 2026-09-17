@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<title>Smudge</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; background:#111; }
+  body { display:flex; flex-direction:row; font:12px system-ui; color:#aaa; }
+
+  #vp { flex:1; position:relative; overflow:hidden; background:#000; }
+  canvas { position:absolute; transform-origin:0 0; cursor:crosshair;
+    box-shadow:0 2px 8px rgba(0,0,0,1), 0 12px 40px rgba(0,0,0,.95), 0 40px 100px rgba(0,0,0,.75); }
+  canvas.pan { cursor:grabbing !important; }
+
+  #sidebar {
+    flex-shrink:0; width:216px;
+    display:flex; flex-direction:column; gap:0;
+    background:#161616; border-left:1px solid #1e1e1e;
+    padding:12px 10px; overflow-y:auto; overflow-x:hidden;
+    user-select:none;
+  }
+
+  .stitle { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+            color:#666; margin:10px 0 5px; }
+  .stitle:first-child { margin-top:2px; }
+  .hline { height:1px; background:#1e1e1e; margin:8px -10px; }
+
+  .row { display:flex; align-items:center; gap:5px; }
+  .lsv { display:grid; grid-template-columns:46px 1fr 24px;
+         align-items:center; gap:6px; margin:3px 0; }
+  .lsv > label { color:#888; font-size:11px; text-align:right; }
+  .lsv > span  { color:#999; font-size:11px; text-align:right;
+                 font-variant-numeric:tabular-nums; }
+
+  #sidebar button {
+    flex:1; padding:5px 0; background:#1c1c1c; border:1px solid #2a2a2a;
+    color:#888; cursor:pointer; border-radius:3px; font:12px system-ui;
+  }
+  #sidebar button:hover { background:#222; color:#bbb; }
+  #sidebar button.on    { border-color:#585858; color:#eee; background:#242424; }
+
+  #hoverDrawIndicator {
+    font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+    color:#333; transition:color .15s;
+    display:flex; align-items:center; gap:4px;
+  }
+  #hoverDrawIndicator.active {
+    color:#c04040;
+    text-shadow:0 0 8px rgba(200,40,40,.45);
+  }
+  #hoverDrawIndicator .dot {
+    width:5px; height:5px; border-radius:50%;
+    background:currentColor; flex-shrink:0;
+  }
+
+  #sidebar select {
+    flex:1; background:#1c1c1c; border:1px solid #2a2a2a;
+    color:#888; padding:4px 5px; border-radius:3px;
+    font:11px system-ui; cursor:pointer;
+  }
+
+  #bgColor { width:26px; height:26px; padding:2px; flex-shrink:0;
+             border:1px solid #2a2a2a; border-radius:3px;
+             background:#1c1c1c; cursor:pointer; }
+
+  /* Thin custom sliders */
+  input[type=range] {
+    width:100%; height:14px; cursor:pointer;
+    -webkit-appearance:none; appearance:none; background:transparent;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height:2px; background:#2a2a2a; border-radius:1px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; width:10px; height:10px; border-radius:50%;
+    background:#666; margin-top:-4px; transition:background .15s;
+  }
+  input[type=range]:hover::-webkit-slider-thumb { background:#999; }
+  input[type=range]::-moz-range-track { height:2px; background:#2a2a2a; border-radius:1px; }
+  input[type=range]::-moz-range-thumb {
+    width:10px; height:10px; border-radius:50%;
+    background:#666; border:none;
+  }
+</style>
+</head>
+<body>
+
+<div id="vp">
+  <canvas id="cgl"></canvas>
+  <canvas id="c2d"></canvas>
+</div>
+
+<div id="sidebar">
+
+  <button id="uploadBtn">Upload image / PDF</button>
+  <input type="file" id="file" accept="image/*,application/pdf" style="display:none">
+
+  <div class="hline"></div>
+  <div class="stitle">Mode</div>
+  <div class="row">
+    <button id="stParticles">Particles</button>
+    <button id="stWarp" class="on">Warp</button>
+  </div>
+
+  <div class="hline"></div>
+  <div class="stitle">Brush</div>
+  <div class="lsv">
+    <label>Size</label>
+    <input type="range" id="brushSize" min="10" max="300" value="80">
+    <span id="brushSizeVal">80</span>
+  </div>
+  <div class="lsv">
+    <label>Force</label>
+    <input type="range" id="brushForce" min="1" max="20" value="7">
+    <span id="brushForceVal">7</span>
+  </div>
+  <div class="row">
+    <button id="brushSimBtn" class="on">Speed sim</button>
+  </div>
+
+  <div class="hline"></div>
+  <div class="stitle">Shape</div>
+  <div class="row">
+    <button id="shpCircle" class="on" title="Circle">●</button>
+    <button id="shpSquare" title="Square">■</button>
+    <button id="shpTri"    title="Triangle">▲</button>
+    <button id="shpRect"   title="Thin rect">▌</button>
+  </div>
+  <div class="row" style="margin-top:5px">
+    <button id="edgeHard">Hard</button>
+    <button id="edgeSmooth" class="on">Smooth</button>
+  </div>
+
+  <div class="hline"></div>
+  <div class="stitle">Particles</div>
+  <div class="lsv">
+    <label>Size</label>
+    <input type="range" id="ptSize" min="1" max="30" value="5">
+    <span id="ptSizeVal">5</span>
+  </div>
+
+  <div class="hline"></div>
+  <div class="stitle">Canvas</div>
+  <div class="row">
+    <span style="color:#454545;font-size:11px;flex-shrink:0">BG</span>
+    <input type="color" id="bgColor" value="#000000" title="Background colour">
+    <button id="reset">Reset</button>
+    <button id="fitBtn">Fit</button>
+  </div>
+
+  <div class="hline"></div>
+  <div class="stitle">Export</div>
+  <div class="row">
+    <select id="recQuality">
+      <option value="2160">4K</option>
+      <option value="1440">1440p</option>
+      <option value="1080">1080p</option>
+      <option value="720">720p</option>
+      <option value="native" selected>Native</option>
+    </select>
+    <select id="recFps">
+      <option value="24">24 fps</option>
+      <option value="30">30 fps</option>
+      <option value="60" selected>60 fps</option>
+    </select>
+  </div>
+  <div class="row" style="margin-top:5px">
+    <select id="recFormat">
+      <option value="h264">H.264 MP4</option>
+      <option value="vp9">VP9 WebM</option>
+    </select>
+    <button id="recBtn">⏺ Rec</button>
+  </div>
+  <div class="row" style="margin-top:5px">
+    <button id="exportBtn">Export PNG</button>
+  </div>
+
+  <div style="flex:1;min-height:12px"></div>
+  <div class="hline"></div>
+  <div class="row" style="justify-content:space-between">
+    <span id="zlabel" style="color:#333;font-size:11px">100%</span>
+    <span id="hoverDrawIndicator" title="Hover-draw mode (D to toggle)"><span class="dot"></span>D</span>
+    <span id="info"   style="color:#2b2b2b;font-size:11px"></span>
+  </div>
+
+</div>
+
+<script>
+const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+
+// ── WebGL (Warp mode) ─────────────────────────────────────────────────────────
+const cgl = document.getElementById('cgl');
+const c2d = document.getElementById('c2d');
+const gl  = cgl.getContext('webgl', { preserveDrawingBuffer: true, alpha: true, premultipliedAlpha: false });
+
+const VS = `
+attribute vec2 aPos; varying vec2 vUV;
+void main() {
+  vUV = vec2(aPos.x * 0.5 + 0.5, -aPos.y * 0.5 + 0.5);
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+const FS = `
+precision highp float;
+uniform sampler2D uColor;
+uniform sampler2D uDisp;
+uniform vec2 uDispScale;
+uniform vec2 uHalfTexel;
+uniform vec2 uInvImgSize;
+varying vec2 vUV;
+void main() {
+  vec2 d = texture2D(uDisp, vUV * uDispScale + uHalfTexel).rg;
+  gl_FragColor = vec4(texture2D(uColor, vUV - d * uInvImgSize).rgb, 1.0);
+}`;
+
+function mkShader(t,s){
+  const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,mkShader(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,mkShader(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog); gl.useProgram(prog);
+const quadVBO = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+const aPosLoc=gl.getAttribLocation(prog,'aPos');
+gl.enableVertexAttribArray(aPosLoc); gl.vertexAttribPointer(aPosLoc,2,gl.FLOAT,false,0,0);
+gl.getExtension('OES_texture_float');
+gl.getExtension('OES_texture_float_linear');
+const uColorLoc     = gl.getUniformLocation(prog,'uColor');
+const uDispLoc      = gl.getUniformLocation(prog,'uDisp');
+const uDispScaleLoc = gl.getUniformLocation(prog,'uDispScale');
+const uHalfTexelLoc = gl.getUniformLocation(prog,'uHalfTexel');
+const uInvImgSizeLoc= gl.getUniformLocation(prog,'uInvImgSize');
+
+// ── Particle point-sprite program ─────────────────────────────────────────────
+const PVS = `
+attribute vec2 aP0;
+attribute vec3 aCol;
+uniform sampler2D uDisp;
+uniform vec2 uDispScale;
+uniform vec2 uHalfTexel;
+uniform vec2 uImgSize;
+uniform float uPtSize;
+varying vec3 vCol;
+void main() {
+  vec2 uv = aP0 / uImgSize;
+  vec2 d  = texture2D(uDisp, uv * uDispScale + uHalfTexel).rg;
+  vec2 pos = aP0 + d;
+  gl_Position  = vec4(pos.x / uImgSize.x * 2.0 - 1.0, 1.0 - pos.y / uImgSize.y * 2.0, 0.0, 1.0);
+  gl_PointSize = uPtSize;
+  vCol = aCol;
+}`;
+const PFS = `
+precision highp float;
+varying vec3 vCol;
+void main() {
+  vec2 pc = gl_PointCoord - 0.5;
+  float r2 = dot(pc, pc) * 4.0;
+  if (r2 > 1.0) discard;
+  gl_FragColor = vec4(vCol, smoothstep(1.0, 0.85, r2));
+}`;
+
+const particleProg = gl.createProgram();
+gl.attachShader(particleProg, mkShader(gl.VERTEX_SHADER, PVS));
+gl.attachShader(particleProg, mkShader(gl.FRAGMENT_SHADER, PFS));
+gl.linkProgram(particleProg);
+if (!gl.getProgramParameter(particleProg, gl.LINK_STATUS))
+  console.error('particle prog:', gl.getProgramInfoLog(particleProg));
+
+const pAP0Loc       = gl.getAttribLocation(particleProg, 'aP0');
+const pAColLoc      = gl.getAttribLocation(particleProg, 'aCol');
+const pUDispLoc     = gl.getUniformLocation(particleProg, 'uDisp');
+const pUDispScaleLoc= gl.getUniformLocation(particleProg, 'uDispScale');
+const pUHalfTexelLoc= gl.getUniformLocation(particleProg, 'uHalfTexel');
+const pUImgSizeLoc  = gl.getUniformLocation(particleProg, 'uImgSize');
+const pUPtSizeLoc   = gl.getUniformLocation(particleProg, 'uPtSize');
+gl.useProgram(particleProg);
+gl.uniform1i(pUDispLoc, 1); // dispTex on unit 1
+gl.useProgram(prog);        // restore warp program
+
+const ptVBO = gl.createBuffer();
+
+function mkTex(unit){
+  const t=gl.createTexture(); gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,t);
+  [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T].forEach(p=>gl.texParameteri(gl.TEXTURE_2D,p,gl.CLAMP_TO_EDGE));
+  [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER].forEach(p=>gl.texParameteri(gl.TEXTURE_2D,p,gl.LINEAR));
+  return t;
+}
+const colorTex=mkTex(0);
+const dispTex =mkTex(1);
+gl.uniform1i(uColorLoc,0);
+gl.uniform1i(uDispLoc,1);
+
+// ── Simulation constants ──────────────────────────────────────────────────────
+const DAMPING   = 0.80;
+const SMOOTH    = 0.78;
+let   FORCE     = 7.0;
+const MAX_DIM   = 1920;
+const TARGET_PX = 18000;
+
+let SPACING = 5;
+let brushR  = 80;
+let particleBuf = null; // persistent backing buffer for ImageData rendering
+
+// ── State ─────────────────────────────────────────────────────────────────────
+// Particle data in parallel typed arrays: cache-friendly, JIT-vectorisable.
+let nPts  = 0;
+let ptX   = null, ptY   = null; // Float32Array – current position
+let ptX0  = null, ptY0  = null; // Float32Array – rest position (last bake)
+let ptVX  = null, ptVY  = null; // Float32Array – velocity
+let ptSVX = null, ptSVY = null; // Float32Array – smoothed velocity
+let ptR   = null, ptG   = null, ptB = null; // Uint8Array – colour
+let ptGX  = null, ptGY  = null; // Uint16Array – initial grid col/row
+let ptAct = null;               // Uint8Array  – 1 = in motion
+let ptCGX = null, ptCGY = null; // Int16Array  – current collision grid cell
+
+// Compact active list: only moving particles are touched in update()
+let actIdx  = null; // Int32Array of particle indices
+let nActive = 0;
+
+// Displacement grid: gridLookup[gy*gridW+gx] = particle index (initial positions, for dispTex)
+let gridLookup = null; // Int32Array
+// Current-position collision grid: rebuilt each frame so collisions are not grid-aligned
+let collGrid = null; // Int32Array
+let cgW = 0, cgH = 0;
+
+let imgW = 0, imgH = 0, maxVel = 0;
+let smoothedSpeed = 0; // exponential-average of mouse speed for variable brush width
+let gridW = 0, gridH = 0;
+let origPixels = null, loadedPixels = null;
+let dispData   = null; // Float32Array(gridW*gridH*4), RG = dx/dy in pixels
+
+function buildParticles(w, h, sp) {
+  gridW = Math.floor((w - 1) / sp) + 2;
+  gridH = Math.floor((h - 1) / sp) + 2;
+  dispData = new Float32Array(gridW * gridH * 4);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dispTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gridW,gridH,0,gl.RGBA,gl.FLOAT,dispData);
+  gl.uniform2f(uDispScaleLoc,  w/(sp*gridW), h/(sp*gridH));
+  gl.uniform2f(uHalfTexelLoc,  0.5/gridW,    0.5/gridH);
+  gl.uniform2f(uInvImgSizeLoc, 1/w,          1/h);
+
+  // Count and allocate
+  let cnt = 0;
+  for (let y = 0; y < h; y += sp) for (let x = 0; x < w; x += sp) cnt++;
+  nPts   = cnt;
+  ptX    = new Float32Array(cnt); ptY    = new Float32Array(cnt);
+  ptX0   = new Float32Array(cnt); ptY0   = new Float32Array(cnt);
+  ptVX   = new Float32Array(cnt); ptVY   = new Float32Array(cnt);
+  ptSVX  = new Float32Array(cnt); ptSVY  = new Float32Array(cnt);
+  ptR    = new Uint8Array(cnt);   ptG    = new Uint8Array(cnt); ptB = new Uint8Array(cnt);
+  ptGX   = new Uint16Array(cnt);  ptGY   = new Uint16Array(cnt);
+  ptAct  = new Uint8Array(cnt);
+  ptCGX  = new Int16Array(cnt);
+  ptCGY  = new Int16Array(cnt);
+  actIdx = new Int32Array(cnt);
+  nActive = 0;
+  gridLookup = new Int32Array(gridW * gridH).fill(-1);
+  cgW = Math.ceil(w / sp) + 2;
+  cgH = Math.ceil(h / sp) + 2;
+  collGrid = new Int32Array(cgW * cgH).fill(-1);
+
+  let i = 0, gy = 0;
+  const vboData = new Float32Array(cnt * 5);
+  for (let y = 0; y < h; y += sp, gy++) {
+    let gx = 0;
+    for (let x = 0; x < w; x += sp, gx++) {
+      const si = (Math.min(h-1,y)*w + Math.min(w-1,x)) * 4;
+      ptX[i] = ptX0[i] = x;  ptY[i] = ptY0[i] = y;
+      ptR[i] = origPixels[si]; ptG[i] = origPixels[si+1]; ptB[i] = origPixels[si+2];
+      ptGX[i] = gx; ptGY[i] = gy;
+      gridLookup[gy * gridW + gx] = i;
+      ptCGX[i] = gx; ptCGY[i] = gy;
+      collGrid[gy * cgW + gx] = i;
+      vboData[i*5]   = x;
+      vboData[i*5+1] = y;
+      vboData[i*5+2] = origPixels[si]   / 255;
+      vboData[i*5+3] = origPixels[si+1] / 255;
+      vboData[i*5+4] = origPixels[si+2] / 255;
+      i++;
+    }
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, ptVBO);
+  gl.bufferData(gl.ARRAY_BUFFER, vboData, gl.STATIC_DRAW);
+  // Set particle program uniforms that depend on grid size
+  gl.useProgram(particleProg);
+  gl.uniform2f(pUDispScaleLoc, w/(sp*gridW), h/(sp*gridH));
+  gl.uniform2f(pUHalfTexelLoc, 0.5/gridW,    0.5/gridH);
+  gl.useProgram(prog);
+  particleBuf = null;
+}
+
+// ── Brush shapes ──────────────────────────────────────────────────────────────
+let brushShape = 'circle';
+let brushEdge  = 'smooth'; // 'hard' | 'smooth'
+
+function edgeFalloff(t) {
+  return brushEdge === 'smooth' ? 0.5*(Math.cos(t*Math.PI)+1) : 1.0;
+}
+
+function shapeWeight(dx, dy, r, nx, ny) {
+  switch (brushShape) {
+    case 'circle': {
+      const d2=dx*dx+dy*dy; if(d2>=r*r) return 0;
+      return edgeFalloff(Math.sqrt(d2)/r);
+    }
+    case 'square': {
+      const ax=Math.abs(dx)/r, ay=Math.abs(dy)/r;
+      if(ax>=1||ay>=1) return 0;
+      return edgeFalloff(Math.max(ax,ay));
+    }
+    case 'triangle': {
+      const tx=nx||0,ty=ny||1,along=dx*tx+dy*ty,perp=dx*(-ty)+dy*tx;
+      if(along<-r||along>r) return 0;
+      if(Math.abs(perp)>(r-along)/2) return 0;
+      return edgeFalloff(Math.sqrt(dx*dx+dy*dy)/r);
+    }
+    case 'rect': {
+      const rw=Math.max(3,r*0.18);
+      if(Math.abs(dx)>rw||Math.abs(dy)>r) return 0;
+      return edgeFalloff(Math.abs(dy)/r);
+    }
+  }
+  return 0;
+}
+
+// ── Physics ───────────────────────────────────────────────────────────────────
+function applyBrush(cx, cy, nx, ny, speed, r) {
+  const f = Math.min(speed, 30) * FORCE * 0.35;
+  const nActivePre = nActive;
+
+  // Part 1: active particles — they've moved, check current position via actIdx
+  for (let ai = 0; ai < nActivePre; ai++) {
+    const i = actIdx[ai];
+    const dx = ptX[i] - cx; if (dx > r || dx < -r) continue;
+    const dy = ptY[i] - cy; if (dy > r || dy < -r) continue;
+    const w = shapeWeight(dx, dy, r, nx, ny);
+    if (w <= 0) continue;
+    const noise = (Math.random()-0.5) * 1.4;
+    const fRand = f * w * (0.35 + Math.random() * 1.3);
+    ptVX[i] += (nx + (-ny)*noise) * fRand;
+    ptVY[i] += (ny +   nx *noise) * fRand;
+  }
+
+  // Part 2: inactive particles — use gridLookup (1:1 grid, no aliasing)
+  // gridLookup is kept current: rebuilt on bake, updated when particles settle
+  const gxMin = Math.max(0,       Math.floor((cx - r) / SPACING));
+  const gxMax = Math.min(gridW-1, Math.floor((cx + r) / SPACING) + 1);
+  const gyMin = Math.max(0,       Math.floor((cy - r) / SPACING));
+  const gyMax = Math.min(gridH-1, Math.floor((cy + r) / SPACING) + 1);
+  for (let gy = gyMin; gy <= gyMax; gy++) {
+    const rowOff = gy * gridW;
+    for (let gx = gxMin; gx <= gxMax; gx++) {
+      const i = gridLookup[rowOff + gx];
+      if (i < 0 || ptAct[i]) continue;
+      const dx = ptX[i] - cx; const dy = ptY[i] - cy;
+      const w = shapeWeight(dx, dy, r, nx, ny);
+      if (w <= 0) continue;
+      ptAct[i] = 1; actIdx[nActive++] = i;
+      const noise = (Math.random()-0.5) * 1.4;
+      const fRand = f * w * (0.35 + Math.random() * 1.3);
+      ptVX[i] += (nx + (-ny)*noise) * fRand;
+      ptVY[i] += (ny +   nx *noise) * fRand;
+    }
+  }
+}
+
+function update() {
+  maxVel = 0;
+  let j = 0;
+  for (let ai = 0; ai < nActive; ai++) {
+    const i = actIdx[ai];
+    ptX[i] += ptVX[i]; ptY[i] += ptVY[i];
+    // Mass-like boundary: small proportional bounce + heavy wall friction.
+    // No random lateral kick — natural spreading comes from the collision cascade.
+    if (ptX[i] < 0) {
+      ptX[i] = 0;
+      ptVX[i] = Math.abs(ptVX[i]) * 0.18;
+      ptVY[i] *= 0.25;
+    } else if (ptX[i] >= imgW) {
+      ptX[i] = imgW - 1;
+      ptVX[i] = -Math.abs(ptVX[i]) * 0.18;
+      ptVY[i] *= 0.25;
+    }
+    if (ptY[i] < 0) {
+      ptY[i] = 0;
+      ptVY[i] = Math.abs(ptVY[i]) * 0.18;
+      ptVX[i] *= 0.25;
+    } else if (ptY[i] >= imgH) {
+      ptY[i] = imgH - 1;
+      ptVY[i] = -Math.abs(ptVY[i]) * 0.18;
+      ptVX[i] *= 0.25;
+    }
+    // Incremental collision grid: move particle to its new cell if it changed
+    const newCGX = Math.max(0, Math.min(cgW-1, (ptX[i] / SPACING) | 0));
+    const newCGY = Math.max(0, Math.min(cgH-1, (ptY[i] / SPACING) | 0));
+    if (newCGX !== ptCGX[i] || newCGY !== ptCGY[i]) {
+      if (collGrid[ptCGY[i] * cgW + ptCGX[i]] === i) collGrid[ptCGY[i] * cgW + ptCGX[i]] = -1;
+      collGrid[newCGY * cgW + newCGX] = i;
+      ptCGX[i] = newCGX; ptCGY[i] = newCGY;
+    }
+    ptVX[i] *= DAMPING; ptVY[i] *= DAMPING;
+    ptSVX[i] = ptSVX[i]*SMOOTH + ptVX[i]*(1-SMOOTH);
+    ptSVY[i] = ptSVY[i]*SMOOTH + ptVY[i]*(1-SMOOTH);
+    const v = Math.abs(ptVX[i]) + Math.abs(ptVY[i]);
+    if (v > 0.004) { if (v > maxVel) maxVel = v; actIdx[j++] = i; }
+    else {
+      ptVX[i]=ptVY[i]=ptSVX[i]=ptSVY[i]=0; ptAct[i]=0;
+      // Re-register settled particle in gridLookup at its new rest position
+      const gx2 = Math.max(0, Math.min(gridW-1, (ptX[i] / SPACING) | 0));
+      const gy2 = Math.max(0, Math.min(gridH-1, (ptY[i] / SPACING) | 0));
+      if (gridLookup[ptGY[i] * gridW + ptGX[i]] === i) gridLookup[ptGY[i] * gridW + ptGX[i]] = -1;
+      gridLookup[gy2 * gridW + gx2] = i;
+      ptGX[i] = gx2; ptGY[i] = gy2;
+    }
+  }
+  nActive = j;
+}
+
+// Sand collision: active particles push neighbours found via current-position grid.
+// Inactive neighbours are treated as walls — no cascade beyond the brush area.
+function applyCollisions() {
+  const n = nActive;
+  const minD = SPACING + 0.5, minD2 = minD * minD;
+  for (let ai = 0; ai < n; ai++) {
+    const i = actIdx[ai];
+    const vi = Math.abs(ptVX[i]) + Math.abs(ptVY[i]);
+    if (vi < 0.05) continue;
+    const cgx = ptCGX[i];
+    const cgy = ptCGY[i];
+    const gxMin = cgx > 0 ? cgx-1 : 0, gxMax = cgx < cgW-1 ? cgx+1 : cgW-1;
+    const gyMin = cgy > 0 ? cgy-1 : 0, gyMax = cgy < cgH-1 ? cgy+1 : cgH-1;
+    for (let ny = gyMin; ny <= gyMax; ny++) {
+      for (let nx = gxMin; nx <= gxMax; nx++) {
+        const j = collGrid[ny * cgW + nx];
+        if (j < 0 || j === i) continue;
+        const dx = ptX[j] - ptX[i], dy = ptY[j] - ptY[i];
+        const d2 = dx*dx + dy*dy;
+        if (d2 >= minD2 || d2 < 0.01) continue;
+        const d   = Math.sqrt(d2);
+        const ndx = dx/d, ndy = dy/d;
+        const vDot = ptVX[i]*ndx + ptVY[i]*ndy;
+        if (vDot <= 0) continue;
+        const tr = vDot * (ptAct[j] ? 0.45 : 0.12);
+        ptVX[i] -= ndx*tr; ptVY[i] -= ndy*tr;
+        if (!ptAct[j]) { ptAct[j] = 1; actIdx[nActive++] = j; }
+        // Random deflection on cascade so pile edges are irregular
+        const ca = (Math.random()-0.5) * 0.9;
+        const cc = Math.cos(ca), cs = Math.sin(ca);
+        ptVX[j] += tr * (ndx*cc - ndy*cs);
+        ptVY[j] += tr * (ndy*cc + ndx*cs);
+        const ov = (minD - d) * 0.35;
+        ptX[i] -= ndx*ov; ptY[i] -= ndy*ov;
+        ptX[j] += ndx*ov; ptY[j] += ndy*ov;
+      }
+    }
+  }
+}
+
+// ── Warp render (GPU) ─────────────────────────────────────────────────────────
+function updateDispTex(forceUpload) {
+  let yMin = gridH, yMax = 0;
+  for (let ai = 0; ai < nActive; ai++) {
+    const i = actIdx[ai];
+    const gy = ptGY[i], gx = ptGX[i];
+    const gi = (gy * gridW + gx) * 4;
+    dispData[gi]   = ptX[i] - ptX0[i];
+    dispData[gi+1] = ptY[i] - ptY0[i];
+    if (gy < yMin) yMin = gy;
+    if (gy > yMax) yMax = gy;
+  }
+  if (nActive > 0 || forceUpload) {
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dispTex);
+    if (forceUpload || nActive === 0) {
+      // Full upload for bake / reset / forced redraw
+      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gridW,gridH,gl.RGBA,gl.FLOAT,dispData);
+    } else {
+      // Partial upload — only the row band that changed (huge win at small SPACING)
+      const off = yMin * gridW * 4;
+      const len = (yMax - yMin + 1) * gridW * 4;
+      gl.texSubImage2D(gl.TEXTURE_2D,0,0,yMin,gridW,yMax-yMin+1,gl.RGBA,gl.FLOAT,
+                       dispData.subarray(off, off + len));
+    }
+  }
+}
+
+function renderParticles() {
+  // Lazily create / resize a backing canvas at image resolution (no DPR scale needed here)
+  if (!particleBuf || particleBuf.w !== imgW || particleBuf.h !== imgH) {
+    const buf = Object.assign(document.createElement('canvas'), { width: imgW, height: imgH });
+    const btx = buf.getContext('2d');
+    particleBuf = { buf, btx, id: btx.createImageData(imgW, imgH), w: imgW, h: imgH };
+  }
+  const { buf, btx, id } = particleBuf;
+  const d32 = new Uint32Array(id.data.buffer); // Uint32 view: LE = 0xAABBGGRR
+
+  // Background fill — single typed-array fill, no per-pixel loop
+  const hex = document.getElementById('bgColor').value || '#000000';
+  const bgPx = ( 0xff000000 |
+    (parseInt(hex.slice(5,7),16) << 16) |
+    (parseInt(hex.slice(3,5),16) <<  8) |
+     parseInt(hex.slice(1,3),16)
+  ) >>> 0;
+  d32.fill(bgPx);
+
+  // Draw each particle as a SPACING×SPACING block — typed-array reads, no Canvas state changes
+  const sp = SPACING, W = imgW, H = imgH;
+  for (let i = 0; i < nPts; i++) {
+    const c32 = (0xff000000 | (ptB[i]<<16) | (ptG[i]<<8) | ptR[i]) >>> 0;
+    const x0 = ptX[i]|0, y0 = ptY[i]|0;
+    const x1 = x0<0?0:x0, x2 = x0+sp>W?W:x0+sp;
+    const y1 = y0<0?0:y0, y2 = y0+sp>H?H:y0+sp;
+    for (let y=y1;y<y2;y++) { const row=y*W; for (let x=x1;x<x2;x++) d32[row+x]=c32; }
+  }
+
+  btx.putImageData(id, 0, 0);
+  const ctx = c2d.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(buf, 0, 0, c2d.width, c2d.height); // GPU-scale to DPR size
+}
+
+// GPU particle render — all nPts points via gl.POINTS, zero CPU per-pixel work
+function renderParticlesGL() {
+  const hex = document.getElementById('bgColor').value || '#000000';
+  gl.useProgram(particleProg);
+  gl.bindBuffer(gl.ARRAY_BUFFER, ptVBO);
+  gl.enableVertexAttribArray(pAP0Loc);
+  gl.enableVertexAttribArray(pAColLoc);
+  const stride = 5 * 4;
+  gl.vertexAttribPointer(pAP0Loc,  2, gl.FLOAT, false, stride, 0);
+  gl.vertexAttribPointer(pAColLoc, 3, gl.FLOAT, false, stride, 2 * 4);
+  gl.uniform2f(pUImgSizeLoc, imgW, imgH);
+  gl.uniform1f(pUPtSizeLoc,  SPACING * dpr * 2.0); // 2× spacing = gapless even with displacement
+  gl.viewport(0, 0, cgl.width, cgl.height);
+  const bgR = parseInt(hex.slice(1,3),16)/255;
+  const bgG = parseInt(hex.slice(3,5),16)/255;
+  const bgB = parseInt(hex.slice(5,7),16)/255;
+  gl.clearColor(bgR, bgG, bgB, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArrays(gl.POINTS, 0, nPts);
+  gl.disable(gl.BLEND);
+}
+
+function uploadPtVBO() {
+  if (!nPts) return;
+  const vboData = new Float32Array(nPts * 5);
+  for (let i = 0; i < nPts; i++) {
+    vboData[i*5]   = ptX0[i];
+    vboData[i*5+1] = ptY0[i];
+    vboData[i*5+2] = ptR[i] / 255;
+    vboData[i*5+3] = ptG[i] / 255;
+    vboData[i*5+4] = ptB[i] / 255;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, ptVBO);
+  gl.bufferData(gl.ARRAY_BUFFER, vboData, gl.STATIC_DRAW);
+}
+
+function bakeState() {
+  // Always render warp view to cgl before readback — particles mode renders differently
+  updateDispTex(true); glDraw();
+  const tmp = Object.assign(document.createElement('canvas'), {width:imgW, height:imgH});
+  const tc = tmp.getContext('2d');
+  tc.drawImage(cgl, 0, 0, imgW, imgH);
+  origPixels.set(new Uint8Array(tc.getImageData(0,0,imgW,imgH).data));
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colorTex);
+  gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,imgW,imgH,gl.RGBA,gl.UNSIGNED_BYTE,origPixels);
+  dispData.fill(0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dispTex);
+  gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gridW,gridH,gl.RGBA,gl.FLOAT,dispData);
+  for (let i = 0; i < nPts; i++) {
+    ptX0[i]=ptX[i]; ptY0[i]=ptY[i];
+    ptVX[i]=ptVY[i]=ptSVX[i]=ptSVY[i]=0; ptAct[i]=0;
+  }
+  nActive = 0;
+  uploadPtVBO(); // VBO rest positions changed — must re-upload
+}
+
+function glDraw() {
+  gl.useProgram(prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+  gl.enableVertexAttribArray(aPosLoc);
+  gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.viewport(0,0,cgl.width,cgl.height);
+  gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+}
+
+// ── Style selector ────────────────────────────────────────────────────────────
+let style = 'warp'; // 'particles' | 'warp'
+
+function setStyle(s) {
+  style = s;
+  // Both modes render to cgl; c2d is unused
+  document.getElementById('stParticles').className = s === 'particles' ? 'on' : '';
+  document.getElementById('stWarp').className      = s === 'warp'      ? 'on' : '';
+  dirty = true;
+}
+
+// ── Viewport ──────────────────────────────────────────────────────────────────
+const vp = document.getElementById('vp');
+let zoom=1, panX=0, panY=0, spaceHeld=false;
+
+function updateTransform() {
+  const tr = `translate(${panX}px,${panY}px) scale(${zoom})`;
+  cgl.style.transform = tr;
+  c2d.style.transform = tr;
+  document.getElementById('zlabel').textContent = Math.round(zoom*100)+'%';
+}
+function fitToViewport() {
+  zoom=Math.min(vp.clientWidth/imgW,vp.clientHeight/imgH)*0.92;
+  panX=(vp.clientWidth-imgW*zoom)/2; panY=(vp.clientHeight-imgH*zoom)/2;
+  updateTransform();
+}
+function activeCanvas() { return cgl; }
+function canvasPos(e) {
+  const r = activeCanvas().getBoundingClientRect();
+  return [(e.clientX-r.left)*imgW/r.width, (e.clientY-r.top)*imgH/r.height];
+}
+vp.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=vp.getBoundingClientRect(), sx=e.clientX-r.left, sy=e.clientY-r.top;
+  const f=e.deltaY<0?1.12:1/1.12;
+  panX=sx-(sx-panX)*f; panY=sy-(sy-panY)*f;
+  zoom=Math.max(0.04,Math.min(12,zoom*f));
+  updateTransform();
+},{passive:false});
+vp.addEventListener('dblclick', fitToViewport);
+document.getElementById('fitBtn').onclick = fitToViewport;
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+let mouseOverVP=false, leftHeld=false, panActive=false;
+let mx=0, my=0, pmx=0, pmy=0, panOx=0, panOy=0;
+let dirty=true;
+let hoverDraw=false;
+let brushSim=true;
+document.getElementById('brushSimBtn').onclick=()=>{
+  brushSim=!brushSim;
+  document.getElementById('brushSimBtn').classList.toggle('on',brushSim);
+};
+
+function toggleHoverDraw() {
+  hoverDraw = !hoverDraw;
+  document.getElementById('hoverDrawIndicator').classList.toggle('active', hoverDraw);
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&!e.repeat){spaceHeld=true;e.preventDefault();}
+  if(e.target.matches('input,select,textarea')) return;
+  if(e.code==='KeyD') toggleHoverDraw();
+});
+document.addEventListener('keyup',e=>{ if(e.code==='Space') spaceHeld=false; });
+
+vp.addEventListener('mouseenter',e=>{ mouseOverVP=true; const[x,y]=canvasPos(e); pmx=mx=x; pmy=my=y; });
+vp.addEventListener('mouseleave',()=>{ mouseOverVP=false; });
+vp.addEventListener('mousedown',e=>{
+  if(e.button===1||(e.button===0&&spaceHeld)){
+    e.preventDefault(); panActive=true;
+    panOx=e.clientX-panX; panOy=e.clientY-panY;
+    activeCanvas().classList.add('pan');
+  } else if(e.button===0){ leftHeld=true; }
+});
+document.addEventListener('mouseup',e=>{
+  if(e.button===0){
+    leftHeld=false; panActive=false;
+    cgl.classList.remove('pan'); c2d.classList.remove('pan');
+    const[x,y]=canvasPos(e); pmx=mx=x; pmy=my=y;
+  }
+  if(e.button===1){ panActive=false; cgl.classList.remove('pan'); c2d.classList.remove('pan'); }
+});
+document.addEventListener('mousemove',e=>{
+  if(panActive){ panX=e.clientX-panOx; panY=e.clientY-panOy; updateTransform(); }
+  const[x,y]=canvasPos(e); mx=x; my=y;
+});
+vp.addEventListener('contextmenu',e=>e.preventDefault());
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+document.getElementById('stParticles').onclick=()=>setStyle('particles');
+document.getElementById('stWarp').onclick      =()=>setStyle('warp');
+
+document.getElementById('brushSize').oninput = e => {
+  brushR = parseInt(e.target.value);
+  document.getElementById('brushSizeVal').textContent = brushR;
+};
+document.getElementById('brushForce').oninput = e => {
+  FORCE = parseInt(e.target.value);
+  document.getElementById('brushForceVal').textContent = FORCE;
+};
+
+document.getElementById('ptSize').oninput = e => {
+  const sp = parseInt(e.target.value);
+  document.getElementById('ptSizeVal').textContent = sp;
+  if (!origPixels) return;
+  if (needsBake) { bakeState(); needsBake = false; idleFrames = 0; }
+  SPACING = sp;
+  buildParticles(imgW, imgH, SPACING);
+  document.getElementById('info').textContent =
+    `${nPts.toLocaleString()} pts · ${SPACING}px · ${imgW}×${imgH}`;
+  dirty = true;
+};
+
+document.getElementById('reset').onclick=()=>{
+  if(!loadedPixels) return;
+  origPixels.set(loadedPixels);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colorTex);
+  gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,imgW,imgH,gl.RGBA,gl.UNSIGNED_BYTE,origPixels);
+  buildParticles(imgW, imgH, SPACING); // re-allocs dispData, zeros it, uploads
+  needsBake=false; idleFrames=0; dirty=true;
+};
+
+const SHAPE_IDS=['shpCircle','shpSquare','shpTri','shpRect'];
+const SHAPE_KEYS=['circle','square','triangle','rect'];
+SHAPE_IDS.forEach((id,i)=>{
+  document.getElementById(id).onclick=()=>{
+    brushShape=SHAPE_KEYS[i];
+    SHAPE_IDS.forEach(s=>{ document.getElementById(s).className=''; });
+    document.getElementById(id).className='on';
+  };
+});
+
+['edgeHard','edgeSmooth'].forEach(id=>{
+  document.getElementById(id).onclick=()=>{
+    brushEdge = id==='edgeHard' ? 'hard' : 'smooth';
+    document.getElementById('edgeHard').className   = brushEdge==='hard'   ? 'on' : '';
+    document.getElementById('edgeSmooth').className = brushEdge==='smooth' ? 'on' : '';
+  };
+});
+
+function exportPng(filename) {
+  const name = filename || 'smudge.png';
+  if(style==='particles'){
+    updateDispTex(true); renderParticlesGL();
+    cgl.toBlob(blob => dlBlob(blob, name), 'image/png');
+  } else {
+    // Restore preview resolution if we're mid-recording resize
+    const needsRestore = recGlW > 0;
+    if(needsRestore){ cgl.width=recGlW; cgl.height=recGlH; }
+    updateDispTex(true); glDraw();
+    cgl.toBlob(blob=>{
+      dlBlob(blob, name);
+      if(needsRestore){ cgl.width=recGlW; cgl.height=recGlH; updateDispTex(true); glDraw(); }
+    },'image/png');
+  }
+}
+
+document.getElementById('exportBtn').onclick = () => exportPng();
+
+document.getElementById('bgColor').oninput=e=>{
+  document.getElementById('vp').style.background=e.target.value;
+  dirty=true;
+};
+
+let needsBake=false, idleFrames=0;
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+function loadPixels(src){
+  const img=new Image();
+  img.onload=()=>{
+    let w=img.width, h=img.height;
+    if(Math.max(w,h)>MAX_DIM){ const s=MAX_DIM/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+    SPACING=Math.max(3,Math.ceil(Math.sqrt(w*h/TARGET_PX)));
+    brushR=Math.round(Math.min(w,h)*0.15);
+
+    const off=Object.assign(document.createElement('canvas'),{width:w,height:h});
+    const offCtx=off.getContext('2d');
+    offCtx.imageSmoothingEnabled=true; offCtx.imageSmoothingQuality='high';
+    offCtx.drawImage(img,0,0,w,h);
+    const imgData=offCtx.getImageData(0,0,w,h);
+
+    imgW=w; imgH=h;
+    cgl.width=w*dpr; cgl.height=h*dpr;
+    cgl.style.width=w+'px'; cgl.style.height=h+'px';
+    c2d.width=w*dpr;  c2d.height=h*dpr;
+    c2d.style.width=w+'px';  c2d.style.height=h+'px';
+    origPixels=new Uint8Array(imgData.data);
+    particleBuf = null; // invalidate so renderParticles rebuilds at new size
+    loadedPixels=origPixels.slice();
+    // Upload image to GPU color texture
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colorTex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,origPixels);
+
+    buildParticles(imgW,imgH,SPACING);
+
+    const ptSlider = document.getElementById('ptSize');
+    ptSlider.value = SPACING;
+    document.getElementById('ptSizeVal').textContent = SPACING;
+    const bsSlider = document.getElementById('brushSize');
+    bsSlider.max = Math.max(w, h);
+    bsSlider.value = brushR;
+    document.getElementById('brushSizeVal').textContent = brushR;
+
+    document.getElementById('info').textContent=`${nPts.toLocaleString()} pts · ${SPACING}px · ${w}×${h}`;
+    dirty=true;
+    fitToViewport();
+  };
+  img.src=src;
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+document.getElementById('uploadBtn').onclick=()=>document.getElementById('file').click();
+document.getElementById('file').onchange=async e=>{
+  const file=e.target.files[0]; if(!file) return;
+  if(file.type==='application/pdf'){
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    let pg=1;
+    if(pdf.numPages>1){
+      const n=parseInt(prompt(`PDF has ${pdf.numPages} pages. Enter page number (1–${pdf.numPages}):`,1));
+      if(!isNaN(n)&&n>=1&&n<=pdf.numPages) pg=n;
+    }
+    const page=await pdf.getPage(pg);
+    const vp0=page.getViewport({scale:1});
+    const scale=Math.max(vp0.width,vp0.height)>MAX_DIM?MAX_DIM/Math.max(vp0.width,vp0.height):1;
+    const vp=page.getViewport({scale});
+    const off=Object.assign(document.createElement('canvas'),{width:Math.round(vp.width),height:Math.round(vp.height)});
+    await page.render({canvasContext:off.getContext('2d'),viewport:vp}).promise;
+    loadPixels(off.toDataURL());
+  } else {
+    loadPixels(URL.createObjectURL(file));
+  }
+};
+
+// ── Video recording (direct GPU captureStream) ────────────────────────────────
+let recording = false, mediaRecorder = null, recChunks = [];
+let recGlW = 0, recGlH = 0; // saved cgl size, non-zero while recording
+let recMode = ''; // 'warp' | 'particles'
+
+function setRecBtn(label, disabled=false) {
+  const b = document.getElementById('recBtn');
+  b.textContent = label; b.disabled = disabled;
+  b.className = recording ? 'on' : '';
+}
+
+function startRecording() {
+  if (!window.MediaRecorder) { alert('MediaRecorder not supported.'); return; }
+
+  const pref = document.getElementById('recFormat').value;
+  const mp4  = ['video/mp4; codecs=avc1', 'video/mp4'];
+  const webm = ['video/webm; codecs=vp9', 'video/webm; codecs=vp8', 'video/webm'];
+  const order = pref === 'h264' ? [...mp4, ...webm] : [...webm, ...mp4];
+  const mime  = order.find(m => MediaRecorder.isTypeSupported(m)) || '';
+  const fps   = parseInt(document.getElementById('recFps').value) || 30;
+
+  // Resize cgl to recording resolution — the same simple shader renders more pixels,
+  // negligible GPU cost, zero CPU readback. captureStream reads directly from the
+  // GPU framebuffer without stalling the rendering pipeline.
+  const qVal  = document.getElementById('recQuality').value;
+  const tgtH  = qVal === 'native' ? imgH : parseInt(qVal);
+  const scale = tgtH / imgH;
+  const outW  = (Math.round(imgW * scale)) & ~1;
+  const outH  = tgtH & ~1;
+
+  recMode = style;
+  let stream, outWR = outW, outHR = outH;
+  if (style === 'particles') {
+    // Particles render to cgl at its current (DPR-scaled) size
+    updateDispTex(true); renderParticlesGL();
+    outWR = cgl.width; outHR = cgl.height;
+    stream = cgl.captureStream(fps);
+  } else {
+    recGlW = cgl.width; recGlH = cgl.height;
+    cgl.width = outW; cgl.height = outH;
+    updateDispTex(true); glDraw();
+    stream = cgl.captureStream(fps);
+  }
+
+  recChunks = [];
+  const bitrate = Math.min(120_000_000, outWR * outHR * fps * 0.25);
+  const opts = { videoBitsPerSecond: bitrate };
+  if (mime) opts.mimeType = mime;
+  mediaRecorder = new MediaRecorder(stream, opts);
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
+  mediaRecorder.onstop = async () => {
+    const type    = mediaRecorder.mimeType || mime || 'video/webm';
+    const ext     = type.includes('mp4') ? 'mp4' : 'webm';
+    const vidBlob = new Blob(recChunks, { type });
+    // Restore canvas and grab PNG from whichever canvas was recorded
+    let pngBlob;
+    if (recMode === 'particles') {
+      updateDispTex(true); renderParticlesGL();
+      pngBlob = await new Promise(r => cgl.toBlob(r, 'image/png'));
+    } else {
+      cgl.width = recGlW; cgl.height = recGlH; recGlW = recGlH = 0;
+      updateDispTex(true); glDraw();
+      pngBlob = await new Promise(r => cgl.toBlob(r, 'image/png'));
+    }
+    mediaRecorder = null; recChunks = [];
+    setRecBtn('⏺ Rec'); dirty = true;
+    // Bundle both files into a single ZIP download
+    const ts     = new Date().toISOString().slice(0,19).replace(/:/g,'-');
+    const vName  = `smudge-${ts}.${ext}`;
+    const pName  = `smudge-${ts}.png`;
+    const zip    = new JSZip();
+    zip.file(vName, vidBlob);
+    zip.file(pName, pngBlob);
+    const zipBlob = await zip.generateAsync({ type:'blob', compression:'STORE' });
+    dlBlob(zipBlob, `smudge-${ts}.zip`);
+  };
+  mediaRecorder.start(200);
+  recording = true;
+  setRecBtn('⏹ Stop');
+}
+
+function dlBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement('a'), { href: url, download: name }).click();
+  URL.revokeObjectURL(url);
+}
+
+function stopRecording() {
+  recording = false;
+  setRecBtn('Saving…', true);
+  mediaRecorder.stop();
+}
+
+document.getElementById('recBtn').onclick = () =>
+  recording ? stopRecording() : startRecording();
+
+c2d.style.display='none';
+loadPixels('./Famous-Paintings.png');
+
+// ── Loop ─────────────────────────────────────────────────────────────────────
+(function(){
+  function raf() {
+    if(nPts > 0 && origPixels){
+      const painting = mouseOverVP && !panActive && (hoverDraw ? !leftHeld : leftHeld);
+      if(painting){
+        const dx=mx-pmx, dy=my-pmy, spd=Math.sqrt(dx*dx+dy*dy);
+        smoothedSpeed = smoothedSpeed*0.72 + spd*0.28;
+        if(spd>0.3){
+          const nx=dx/spd, ny=dy/spd;
+          const effR = brushSim ? Math.max(3, brushR / (1.0 + smoothedSpeed * 0.055)) : brushR;
+          const steps=Math.ceil(spd/Math.max(1,effR*0.3));
+          for(let s=1;s<=steps;s++){
+            const t=s/steps;
+            applyBrush(pmx+dx*t,pmy+dy*t,nx,ny,spd/steps,effR);
+          }
+          needsBake=true; idleFrames=0;
+        }
+      } else {
+        smoothedSpeed *= 0.85; // decay when pen lifts so next stroke starts fresh
+      }
+      if(maxVel<0.008) idleFrames++; else idleFrames=0;
+      if(needsBake&&idleFrames>20){ bakeState(); needsBake=false; idleFrames=0; dirty=true; }
+      pmx=mx; pmy=my;
+      update();
+      if(nActive > 0){ applyCollisions(); }
+      const active=painting||maxVel>0.008;
+      if(active) dirty=true;
+      let rendered=false;
+      if(dirty){
+        updateDispTex();
+        if(style==='particles') renderParticlesGL();
+        else glDraw();
+        rendered=true;
+        if(!active) dirty=false;
+      }
+      // Feed recording stream exactly once per frame (skip if dirty block already rendered)
+      if(recording && !rendered){
+        updateDispTex();
+        if(style==='warp') glDraw(); else renderParticlesGL();
+      }
+    }
+    requestAnimationFrame(raf);
+  }
+  requestAnimationFrame(raf);
+})();
+</script>
+</body>
+</html>
