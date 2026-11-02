@@ -1586,8 +1586,9 @@ body.tool.is-light {
     background: var(--glass-clear);
   }
 
-  .ui-menu:hover .ui-menu-value,
-  .ui-heading:hover {
+  /* A group's title stays as it is under the mouse (owner, 2026-11-02, on "Numbers" lighting up:
+     "ten hover tutaj jest niepotrzebny i tylko rozprasza na tych sekcjach"). */
+  .ui-menu:hover .ui-menu-value {
     color: var(--text-primary);
   }
 
