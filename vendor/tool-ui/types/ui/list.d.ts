@@ -1,0 +1,30 @@
+export type Opening = "press" | "tap" | "keyboard";
+export declare class MenuList {
+    private readonly pick;
+    readonly element: HTMLElement;
+    onClose: () => void;
+    private readonly scroller;
+    private readonly options;
+    private readonly titles;
+    private chosen;
+    private lit;
+    private open_;
+    private opener;
+    private panel;
+    private openedAt;
+    private held;
+    private readonly watchPanel;
+    constructor(label: string, titles: string[], pick: (index: number) => void);
+    get isOpen(): boolean;
+    open(opener: HTMLElement, value: HTMLElement, chosen: number, how: Opening): void;
+    close(): void;
+    private choose;
+    private light;
+    private indexAt;
+    private readonly onKey;
+    private readonly onPressOutside;
+    private readonly onLetGo;
+    private readonly onAway;
+    private readonly onScroll;
+    private place;
+}

@@ -1,199 +1,57 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Smudge</title>
+<!-- The panel, its controls and the page come from tool-ui (~/Desktop/tool-ui), copied into
+     vendor/tool-ui/ by its `npm run vendor -- sandtool`: never edit that copy here. -->
+<link rel="stylesheet" href="vendor/tool-ui/tool-ui.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<title>Smudge</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { height:100%; overflow:hidden; background:#111; }
-  body { display:flex; flex-direction:row; font:12px system-ui; color:#aaa; }
-
-  #vp { flex:1; position:relative; overflow:hidden; background:#000; }
-  canvas { position:absolute; transform-origin:0 0; cursor:crosshair;
+  /* The image fills no window of its own: it is placed, zoomed and panned by a transform
+     (updateTransform), and the panel's glass floats over it. */
+  .tool-view canvas { position:absolute; left:0; top:0; transform-origin:0 0; cursor:crosshair;
     box-shadow:0 2px 8px rgba(0,0,0,1), 0 12px 40px rgba(0,0,0,.95), 0 40px 100px rgba(0,0,0,.75); }
-  canvas.pan { cursor:grabbing !important; }
-
-  #sidebar {
-    flex-shrink:0; width:216px;
-    display:flex; flex-direction:column; gap:0;
-    background:#161616; border-left:1px solid #1e1e1e;
-    padding:12px 10px; overflow-y:auto; overflow-x:hidden;
-    user-select:none;
-  }
-
-  .stitle { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
-            color:#666; margin:10px 0 5px; }
-  .stitle:first-child { margin-top:2px; }
-  .hline { height:1px; background:#1e1e1e; margin:8px -10px; }
-
-  .row { display:flex; align-items:center; gap:5px; }
-  .lsv { display:grid; grid-template-columns:46px 1fr 24px;
-         align-items:center; gap:6px; margin:3px 0; }
-  .lsv > label { color:#888; font-size:11px; text-align:right; }
-  .lsv > span  { color:#999; font-size:11px; text-align:right;
-                 font-variant-numeric:tabular-nums; }
-
-  #sidebar button {
-    flex:1; padding:5px 0; background:#1c1c1c; border:1px solid #2a2a2a;
-    color:#888; cursor:pointer; border-radius:3px; font:12px system-ui;
-  }
-  #sidebar button:hover { background:#222; color:#bbb; }
-  #sidebar button.on    { border-color:#585858; color:#eee; background:#242424; }
-
-  #hoverDrawIndicator {
-    font-size:10px; letter-spacing:.06em; text-transform:uppercase;
-    color:#333; transition:color .15s;
-    display:flex; align-items:center; gap:4px;
-  }
-  #hoverDrawIndicator.active {
-    color:#c04040;
-    text-shadow:0 0 8px rgba(200,40,40,.45);
-  }
-  #hoverDrawIndicator .dot {
-    width:5px; height:5px; border-radius:50%;
-    background:currentColor; flex-shrink:0;
-  }
-
-  #sidebar select {
-    flex:1; background:#1c1c1c; border:1px solid #2a2a2a;
-    color:#888; padding:4px 5px; border-radius:3px;
-    font:11px system-ui; cursor:pointer;
-  }
-
-  #bgColor { width:26px; height:26px; padding:2px; flex-shrink:0;
-             border:1px solid #2a2a2a; border-radius:3px;
-             background:#1c1c1c; cursor:pointer; }
-
-  /* Thin custom sliders */
-  input[type=range] {
-    width:100%; height:14px; cursor:pointer;
-    -webkit-appearance:none; appearance:none; background:transparent;
-  }
-  input[type=range]::-webkit-slider-runnable-track {
-    height:2px; background:#2a2a2a; border-radius:1px;
-  }
-  input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance:none; width:10px; height:10px; border-radius:50%;
-    background:#666; margin-top:-4px; transition:background .15s;
-  }
-  input[type=range]:hover::-webkit-slider-thumb { background:#999; }
-  input[type=range]::-moz-range-track { height:2px; background:#2a2a2a; border-radius:1px; }
-  input[type=range]::-moz-range-thumb {
-    width:10px; height:10px; border-radius:50%;
-    background:#666; border:none;
-  }
+  .tool-view canvas.pan { cursor:grabbing !important; }
 </style>
 </head>
 <body>
 
-<div id="vp">
-  <canvas id="cgl"></canvas>
-  <canvas id="c2d"></canvas>
-</div>
+<script type="module">
+import { acceptDrops, createFilePicker, createHint, createTool, download } from './vendor/tool-ui/tool-ui.js';
 
-<div id="sidebar">
+// ── Frame ─────────────────────────────────────────────────────────────────────
+// The view fills the window, the panel floats over its right side (tool-ui).
+const tool = createTool();
+const { view, pane } = tool;
 
-  <button id="uploadBtn">Upload image / PDF</button>
-  <input type="file" id="file" accept="image/*,application/pdf" style="display:none">
+// The page under the image: dark or light with the glass chosen in the panel's capsule.
+const pageColor = () => (tool.theme === 'light' ? '#f7f7f7' : '#080808');
 
-  <div class="hline"></div>
-  <div class="stitle">Mode</div>
-  <div class="row">
-    <button id="stParticles">Particles</button>
-    <button id="stWarp" class="on">Warp</button>
-  </div>
+// What the panel's controls show and change.
+const settings = {
+  mode: 'warp',
+  brushSize: 80,
+  force: 7,
+  shape: 'circle',
+  edge: 'smooth',
+  speedSim: true,
+  hoverDraw: false,
+  spacing: 5,
+  background: pageColor(),
+  recQuality: 'native',
+  recFps: 60,
+  recFormat: 'h264',
+};
 
-  <div class="hline"></div>
-  <div class="stitle">Brush</div>
-  <div class="lsv">
-    <label>Size</label>
-    <input type="range" id="brushSize" min="10" max="300" value="80">
-    <span id="brushSizeVal">80</span>
-  </div>
-  <div class="lsv">
-    <label>Force</label>
-    <input type="range" id="brushForce" min="1" max="20" value="7">
-    <span id="brushForceVal">7</span>
-  </div>
-  <div class="row">
-    <button id="brushSimBtn" class="on">Speed sim</button>
-  </div>
-
-  <div class="hline"></div>
-  <div class="stitle">Shape</div>
-  <div class="row">
-    <button id="shpCircle" class="on" title="Circle">●</button>
-    <button id="shpSquare" title="Square">■</button>
-    <button id="shpTri"    title="Triangle">▲</button>
-    <button id="shpRect"   title="Thin rect">▌</button>
-  </div>
-  <div class="row" style="margin-top:5px">
-    <button id="edgeHard">Hard</button>
-    <button id="edgeSmooth" class="on">Smooth</button>
-  </div>
-
-  <div class="hline"></div>
-  <div class="stitle">Particles</div>
-  <div class="lsv">
-    <label>Size</label>
-    <input type="range" id="ptSize" min="1" max="30" value="5">
-    <span id="ptSizeVal">5</span>
-  </div>
-
-  <div class="hline"></div>
-  <div class="stitle">Canvas</div>
-  <div class="row">
-    <span style="color:#454545;font-size:11px;flex-shrink:0">BG</span>
-    <input type="color" id="bgColor" value="#000000" title="Background colour">
-    <button id="reset">Reset</button>
-    <button id="fitBtn">Fit</button>
-  </div>
-
-  <div class="hline"></div>
-  <div class="stitle">Export</div>
-  <div class="row">
-    <select id="recQuality">
-      <option value="2160">4K</option>
-      <option value="1440">1440p</option>
-      <option value="1080">1080p</option>
-      <option value="720">720p</option>
-      <option value="native" selected>Native</option>
-    </select>
-    <select id="recFps">
-      <option value="24">24 fps</option>
-      <option value="30">30 fps</option>
-      <option value="60" selected>60 fps</option>
-    </select>
-  </div>
-  <div class="row" style="margin-top:5px">
-    <select id="recFormat">
-      <option value="h264">H.264 MP4</option>
-      <option value="vp9">VP9 WebM</option>
-    </select>
-    <button id="recBtn">⏺ Rec</button>
-  </div>
-  <div class="row" style="margin-top:5px">
-    <button id="exportBtn">Export PNG</button>
-  </div>
-
-  <div style="flex:1;min-height:12px"></div>
-  <div class="hline"></div>
-  <div class="row" style="justify-content:space-between">
-    <span id="zlabel" style="color:#333;font-size:11px">100%</span>
-    <span id="hoverDrawIndicator" title="Hover-draw mode (D to toggle)"><span class="dot"></span>D</span>
-    <span id="info"   style="color:#2b2b2b;font-size:11px"></span>
-  </div>
-
-</div>
-
-<script>
 const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
 
 // ── WebGL (Warp mode) ─────────────────────────────────────────────────────────
-const cgl = document.getElementById('cgl');
-const c2d = document.getElementById('c2d');
+const cgl = document.createElement('canvas');
+const c2d = document.createElement('canvas');
+view.append(cgl, c2d);
 const gl  = cgl.getContext('webgl', { preserveDrawingBuffer: true, alpha: true, premultipliedAlpha: false });
 
 const VS = `
@@ -601,7 +459,7 @@ function renderParticles() {
   const d32 = new Uint32Array(id.data.buffer); // Uint32 view: LE = 0xAABBGGRR
 
   // Background fill — single typed-array fill, no per-pixel loop
-  const hex = document.getElementById('bgColor').value || '#000000';
+  const hex = settings.background;
   const bgPx = ( 0xff000000 |
     (parseInt(hex.slice(5,7),16) << 16) |
     (parseInt(hex.slice(3,5),16) <<  8) |
@@ -627,7 +485,7 @@ function renderParticles() {
 
 // GPU particle render — all nPts points via gl.POINTS, zero CPU per-pixel work
 function renderParticlesGL() {
-  const hex = document.getElementById('bgColor').value || '#000000';
+  const hex = settings.background;
   gl.useProgram(particleProg);
   gl.bindBuffer(gl.ARRAY_BUFFER, ptVBO);
   gl.enableVertexAttribArray(pAP0Loc);
@@ -698,24 +556,24 @@ let style = 'warp'; // 'particles' | 'warp'
 function setStyle(s) {
   style = s;
   // Both modes render to cgl; c2d is unused
-  document.getElementById('stParticles').className = s === 'particles' ? 'on' : '';
-  document.getElementById('stWarp').className      = s === 'warp'      ? 'on' : '';
   dirty = true;
 }
 
 // ── Viewport ──────────────────────────────────────────────────────────────────
-const vp = document.getElementById('vp');
 let zoom=1, panX=0, panY=0, spaceHeld=false;
 
 function updateTransform() {
   const tr = `translate(${panX}px,${panY}px) scale(${zoom})`;
   cgl.style.transform = tr;
   c2d.style.transform = tr;
-  document.getElementById('zlabel').textContent = Math.round(zoom*100)+'%';
+  showStatus();
 }
+// The whole image in the part of the window the panel leaves free.
 function fitToViewport() {
-  zoom=Math.min(vp.clientWidth/imgW,vp.clientHeight/imgH)*0.92;
-  panX=(vp.clientWidth-imgW*zoom)/2; panY=(vp.clientHeight-imgH*zoom)/2;
+  if(!imgW) return;
+  const free = tool.freeArea();
+  zoom=Math.min(free.width/imgW,free.height/imgH)*0.92;
+  panX=free.x+(free.width-imgW*zoom)/2; panY=free.y+(free.height-imgH*zoom)/2;
   updateTransform();
 }
 function activeCanvas() { return cgl; }
@@ -723,16 +581,15 @@ function canvasPos(e) {
   const r = activeCanvas().getBoundingClientRect();
   return [(e.clientX-r.left)*imgW/r.width, (e.clientY-r.top)*imgH/r.height];
 }
-vp.addEventListener('wheel',e=>{
+view.addEventListener('wheel',e=>{
   e.preventDefault();
-  const r=vp.getBoundingClientRect(), sx=e.clientX-r.left, sy=e.clientY-r.top;
+  const r=view.getBoundingClientRect(), sx=e.clientX-r.left, sy=e.clientY-r.top;
   const f=e.deltaY<0?1.12:1/1.12;
   panX=sx-(sx-panX)*f; panY=sy-(sy-panY)*f;
   zoom=Math.max(0.04,Math.min(12,zoom*f));
   updateTransform();
 },{passive:false});
-vp.addEventListener('dblclick', fitToViewport);
-document.getElementById('fitBtn').onclick = fitToViewport;
+view.addEventListener('dblclick', fitToViewport);
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 let mouseOverVP=false, leftHeld=false, panActive=false;
@@ -740,26 +597,26 @@ let mx=0, my=0, pmx=0, pmy=0, panOx=0, panOy=0;
 let dirty=true;
 let hoverDraw=false;
 let brushSim=true;
-document.getElementById('brushSimBtn').onclick=()=>{
-  brushSim=!brushSim;
-  document.getElementById('brushSimBtn').classList.toggle('on',brushSim);
-};
 
 function toggleHoverDraw() {
   hoverDraw = !hoverDraw;
-  document.getElementById('hoverDrawIndicator').classList.toggle('active', hoverDraw);
+  settings.hoverDraw = hoverDraw;
+  hoverToggle.refresh();
 }
 
 document.addEventListener('keydown',e=>{
-  if(e.code==='Space'&&!e.repeat){spaceHeld=true;e.preventDefault();}
-  if(e.target.matches('input,select,textarea')) return;
+  // A value being typed in the panel (a slider's number, the colour's code) keeps its keys.
+  const typing = e.target.matches('input,textarea');
+  if(e.code==='Space'&&!e.repeat&&!typing){spaceHeld=true;e.preventDefault();}
+  if(typing||e.target.matches('select')) return;
   if(e.code==='KeyD') toggleHoverDraw();
 });
 document.addEventListener('keyup',e=>{ if(e.code==='Space') spaceHeld=false; });
 
-vp.addEventListener('mouseenter',e=>{ mouseOverVP=true; const[x,y]=canvasPos(e); pmx=mx=x; pmy=my=y; });
-vp.addEventListener('mouseleave',()=>{ mouseOverVP=false; });
-vp.addEventListener('mousedown',e=>{
+// The panel lies over the view: the pointer on a plate leaves the view, so it does not paint there.
+view.addEventListener('mouseenter',e=>{ mouseOverVP=true; const[x,y]=canvasPos(e); pmx=mx=x; pmy=my=y; });
+view.addEventListener('mouseleave',()=>{ mouseOverVP=false; });
+view.addEventListener('mousedown',e=>{
   if(e.button===1||(e.button===0&&spaceHeld)){
     e.preventDefault(); panActive=true;
     panOx=e.clientX-panX; panOy=e.clientY-panY;
@@ -778,89 +635,136 @@ document.addEventListener('mousemove',e=>{
   if(panActive){ panX=e.clientX-panOx; panY=e.clientY-panOy; updateTransform(); }
   const[x,y]=canvasPos(e); mx=x; my=y;
 });
-vp.addEventListener('contextmenu',e=>e.preventDefault());
+view.addEventListener('contextmenu',e=>e.preventDefault());
 
-// ── Controls ──────────────────────────────────────────────────────────────────
-document.getElementById('stParticles').onclick=()=>setStyle('particles');
-document.getElementById('stWarp').onclick      =()=>setStyle('warp');
+// ── Panel ─────────────────────────────────────────────────────────────────────
+const hint = createHint(view, 'No image yet. Upload an image or a PDF, or drop it here.');
 
-document.getElementById('brushSize').oninput = e => {
-  brushR = parseInt(e.target.value);
-  document.getElementById('brushSizeVal').textContent = brushR;
-};
-document.getElementById('brushForce').oninput = e => {
-  FORCE = parseInt(e.target.value);
-  document.getElementById('brushForceVal').textContent = FORCE;
-};
+// Every control sits in a group with a title, and every group folds (tool-ui, owner 2026-11-02).
+const picker = createFilePicker('image/*,application/pdf', false, files => openFile(files[0]));
+const imageGroup = pane.addGroup('Image');
+imageGroup.addButton({ title: 'Upload image / PDF' }).on('click', () => picker.click());
+acceptDrops(view, files => openFile(files[0]));
 
-document.getElementById('ptSize').oninput = e => {
-  const sp = parseInt(e.target.value);
-  document.getElementById('ptSizeVal').textContent = sp;
+// Everything below the button works on an image: hidden until one is loaded (tool-ui shows only
+// what can be used now).
+const modeChoice = imageGroup.addSegments(settings, 'mode', { label: 'Mode', options: { Particles: 'particles', Warp: 'warp' } })
+  .on('change', setStyle);
+// The old status line: points, their spacing, the image's size and the zoom.
+const statusNote = imageGroup.addNote();
+
+const brushGroup = pane.addGroup('Brush');
+const brushSize = brushGroup.addSlider(settings, 'brushSize', { label: 'Size', min: 10, max: 300, step: 1 })
+  .on('change', v => { brushR = v; });
+brushGroup.addSlider(settings, 'force', { label: 'Force', min: 1, max: 20, step: 1 })
+  .on('change', v => { FORCE = v; });
+// The shapes as signs drawn in one 16 × 16 box, from tool-ui's demo: weighed by eye, so the
+// square is smaller than the circle and the triangle bigger, and the three look equally heavy.
+const sign = shape => `<svg viewBox="0 0 16 16" aria-hidden="true">${shape}</svg>`;
+brushGroup.addSegments(settings, 'shape', {
+  label: 'Shape',
+  options: { Circle: 'circle', Square: 'square', Triangle: 'triangle', 'Thin rect': 'rect' },
+  icons: {
+    Circle: sign('<circle cx="8" cy="8" r="6" fill="currentColor"/>'),
+    Square: sign('<rect x="2.75" y="2.75" width="10.5" height="10.5" rx="1.5" fill="currentColor"/>'),
+    Triangle: sign('<path d="M8.8 3.39 13.95 12.36Q14.75 13.75 13.15 13.75H2.85Q1.25 13.75 2.05 12.36L7.2 3.39Q8 2 8.8 3.39z" fill="currentColor"/>'),
+    'Thin rect': sign('<rect x="4.75" y="2" width="6.5" height="12" rx="1.5" fill="currentColor"/>'),
+  },
+}).on('change', v => { brushShape = v; });
+brushGroup.addSegments(settings, 'edge', { label: 'Edge', options: { Hard: 'hard', Smooth: 'smooth' } })
+  .on('change', v => { brushEdge = v; });
+brushGroup.addToggle(settings, 'speedSim', { label: 'Speed sim' })
+  .on('change', on => { brushSim = on; });
+// Paints without holding the button; D turns it on and off too.
+const hoverToggle = brushGroup.addToggle(settings, 'hoverDraw', { label: 'Hover draw (D)' })
+  .on('change', on => { hoverDraw = on; });
+
+const particlesGroup = pane.addGroup('Particles');
+const particleSize = particlesGroup.addSlider(settings, 'spacing', { label: 'Size', min: 1, max: 30, step: 1 })
+  .on('change', sp => {
+    if (!origPixels) return;
+    if (needsBake) { bakeState(); needsBake = false; idleFrames = 0; }
+    SPACING = sp;
+    buildParticles(imgW, imgH, SPACING);
+    showStatus();
+    dirty = true;
+  });
+
+const canvasGroup = pane.addGroup('Canvas');
+const background = canvasGroup.addColor(settings, 'background', { label: 'Background' })
+  .on('change', paintBackground);
+canvasGroup.addButtons(['Reset', 'Fit'])
+  .on('click', i => (i === 0 ? resetImage() : fitToViewport()));
+
+const exportGroup = pane.addGroup('Export');
+// The video's settings, each a menu like every setting's value in tool-ui.
+const videoChoices = [
+  exportGroup.addMenu(settings, 'recQuality', {
+    label: 'Quality',
+    options: { '4K': '2160', '1440p': '1440', '1080p': '1080', '720p': '720', Native: 'native' },
+  }),
+  exportGroup.addMenu(settings, 'recFps', { label: 'Frame rate', options: { '24 fps': 24, '30 fps': 30, '60 fps': 60 } }),
+  exportGroup.addMenu(settings, 'recFormat', { label: 'Format', options: { 'H.264 MP4': 'h264', 'VP9 WebM': 'vp9' } }),
+];
+const recButton = exportGroup.addButton({ title: 'Record video' })
+  .on('click', () => (recording ? stopRecording() : startRecording()));
+exportGroup.addButton({ title: 'Export PNG' }).on('click', () => exportPng());
+
+function showStatus() {
   if (!origPixels) return;
-  if (needsBake) { bakeState(); needsBake = false; idleFrames = 0; }
-  SPACING = sp;
-  buildParticles(imgW, imgH, SPACING);
-  document.getElementById('info').textContent =
-    `${nPts.toLocaleString()} pts · ${SPACING}px · ${imgW}×${imgH}`;
-  dirty = true;
-};
+  statusNote.set(`${nPts.toLocaleString()} pts · ${SPACING} px · ${imgW} × ${imgH} · ${Math.round(zoom*100)} %`);
+}
 
-document.getElementById('reset').onclick=()=>{
+function showImageControls() {
+  modeChoice.hidden = !origPixels;
+  for (const group of [brushGroup, particlesGroup, canvasGroup, exportGroup]) group.hidden = !origPixels;
+}
+
+// The background around the image, and between the particles (Particles mode, in the PNG and the
+// video too). The glass's Dark or Light in the capsule sets it to the page's colour.
+function paintBackground() {
+  view.style.background = settings.background;
+  dirty = true;
+}
+tool.onThemeChange(theme => {
+  if (theme === 'auto') return;
+  settings.background = pageColor();
+  background.refresh();
+  paintBackground();
+});
+
+function resetImage() {
   if(!loadedPixels) return;
   origPixels.set(loadedPixels);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colorTex);
   gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,imgW,imgH,gl.RGBA,gl.UNSIGNED_BYTE,origPixels);
   buildParticles(imgW, imgH, SPACING); // re-allocs dispData, zeros it, uploads
   needsBake=false; idleFrames=0; dirty=true;
-};
-
-const SHAPE_IDS=['shpCircle','shpSquare','shpTri','shpRect'];
-const SHAPE_KEYS=['circle','square','triangle','rect'];
-SHAPE_IDS.forEach((id,i)=>{
-  document.getElementById(id).onclick=()=>{
-    brushShape=SHAPE_KEYS[i];
-    SHAPE_IDS.forEach(s=>{ document.getElementById(s).className=''; });
-    document.getElementById(id).className='on';
-  };
-});
-
-['edgeHard','edgeSmooth'].forEach(id=>{
-  document.getElementById(id).onclick=()=>{
-    brushEdge = id==='edgeHard' ? 'hard' : 'smooth';
-    document.getElementById('edgeHard').className   = brushEdge==='hard'   ? 'on' : '';
-    document.getElementById('edgeSmooth').className = brushEdge==='smooth' ? 'on' : '';
-  };
-});
+}
 
 function exportPng(filename) {
   const name = filename || 'smudge.png';
   if(style==='particles'){
     updateDispTex(true); renderParticlesGL();
-    cgl.toBlob(blob => dlBlob(blob, name), 'image/png');
+    cgl.toBlob(blob => download(blob, name), 'image/png');
   } else {
     // Restore preview resolution if we're mid-recording resize
     const needsRestore = recGlW > 0;
     if(needsRestore){ cgl.width=recGlW; cgl.height=recGlH; }
     updateDispTex(true); glDraw();
     cgl.toBlob(blob=>{
-      dlBlob(blob, name);
+      download(blob, name);
       if(needsRestore){ cgl.width=recGlW; cgl.height=recGlH; updateDispTex(true); glDraw(); }
     },'image/png');
   }
 }
 
-document.getElementById('exportBtn').onclick = () => exportPng();
-
-document.getElementById('bgColor').oninput=e=>{
-  document.getElementById('vp').style.background=e.target.value;
-  dirty=true;
-};
-
 let needsBake=false, idleFrames=0;
 
 // ── Load ──────────────────────────────────────────────────────────────────────
-function loadPixels(src){
+function loadPixels(src, onFail){
   const img=new Image();
+  img.onerror=()=>onFail?.();
   img.onload=()=>{
     let w=img.width, h=img.height;
     if(Math.max(w,h)>MAX_DIM){ const s=MAX_DIM/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
@@ -887,15 +791,14 @@ function loadPixels(src){
 
     buildParticles(imgW,imgH,SPACING);
 
-    const ptSlider = document.getElementById('ptSize');
-    ptSlider.value = SPACING;
-    document.getElementById('ptSizeVal').textContent = SPACING;
-    const bsSlider = document.getElementById('brushSize');
-    bsSlider.max = Math.max(w, h);
-    bsSlider.value = brushR;
-    document.getElementById('brushSizeVal').textContent = brushR;
+    settings.spacing = SPACING;
+    particleSize.refresh();
+    settings.brushSize = brushR;
+    brushSize.setRange(10, Math.max(w, h));
 
-    document.getElementById('info').textContent=`${nPts.toLocaleString()} pts · ${SPACING}px · ${w}×${h}`;
+    cgl.style.display='';
+    hint.hide();
+    showImageControls();
     dirty=true;
     fitToViewport();
   };
@@ -904,9 +807,10 @@ function loadPixels(src){
 
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-document.getElementById('uploadBtn').onclick=()=>document.getElementById('file').click();
-document.getElementById('file').onchange=async e=>{
-  const file=e.target.files[0]; if(!file) return;
+async function openFile(file){
+  if(!file) return;
+  // Only said while there is no image yet: over one, the hint would cover it.
+  const fail=()=>{ if(!origPixels) hint.show('This file is not an image or a PDF the browser can open.'); };
   if(file.type==='application/pdf'){
     const buf=await file.arrayBuffer();
     const pdf=await pdfjsLib.getDocument({data:buf}).promise;
@@ -921,11 +825,11 @@ document.getElementById('file').onchange=async e=>{
     const vp=page.getViewport({scale});
     const off=Object.assign(document.createElement('canvas'),{width:Math.round(vp.width),height:Math.round(vp.height)});
     await page.render({canvasContext:off.getContext('2d'),viewport:vp}).promise;
-    loadPixels(off.toDataURL());
+    loadPixels(off.toDataURL(), fail);
   } else {
-    loadPixels(URL.createObjectURL(file));
+    loadPixels(URL.createObjectURL(file), fail);
   }
-};
+}
 
 // ── Video recording (direct GPU captureStream) ────────────────────────────────
 let recording = false, mediaRecorder = null, recChunks = [];
@@ -933,25 +837,25 @@ let recGlW = 0, recGlH = 0; // saved cgl size, non-zero while recording
 let recMode = ''; // 'warp' | 'particles'
 
 function setRecBtn(label, disabled=false) {
-  const b = document.getElementById('recBtn');
-  b.textContent = label; b.disabled = disabled;
-  b.className = recording ? 'on' : '';
+  recButton.title = label; recButton.disabled = disabled;
+  // The video's settings are read when it starts: out of the way until it is saved.
+  for (const choice of videoChoices) choice.hidden = recording || disabled;
 }
 
 function startRecording() {
   if (!window.MediaRecorder) { alert('MediaRecorder not supported.'); return; }
 
-  const pref = document.getElementById('recFormat').value;
+  const pref = settings.recFormat;
   const mp4  = ['video/mp4; codecs=avc1', 'video/mp4'];
   const webm = ['video/webm; codecs=vp9', 'video/webm; codecs=vp8', 'video/webm'];
   const order = pref === 'h264' ? [...mp4, ...webm] : [...webm, ...mp4];
   const mime  = order.find(m => MediaRecorder.isTypeSupported(m)) || '';
-  const fps   = parseInt(document.getElementById('recFps').value) || 30;
+  const fps   = settings.recFps || 30;
 
   // Resize cgl to recording resolution — the same simple shader renders more pixels,
   // negligible GPU cost, zero CPU readback. captureStream reads directly from the
   // GPU framebuffer without stalling the rendering pipeline.
-  const qVal  = document.getElementById('recQuality').value;
+  const qVal  = settings.recQuality;
   const tgtH  = qVal === 'native' ? imgH : parseInt(qVal);
   const scale = tgtH / imgH;
   const outW  = (Math.round(imgW * scale)) & ~1;
@@ -992,7 +896,7 @@ function startRecording() {
       pngBlob = await new Promise(r => cgl.toBlob(r, 'image/png'));
     }
     mediaRecorder = null; recChunks = [];
-    setRecBtn('⏺ Rec'); dirty = true;
+    setRecBtn('Record video'); dirty = true;
     // Bundle both files into a single ZIP download
     const ts     = new Date().toISOString().slice(0,19).replace(/:/g,'-');
     const vName  = `smudge-${ts}.${ext}`;
@@ -1001,17 +905,11 @@ function startRecording() {
     zip.file(vName, vidBlob);
     zip.file(pName, pngBlob);
     const zipBlob = await zip.generateAsync({ type:'blob', compression:'STORE' });
-    dlBlob(zipBlob, `smudge-${ts}.zip`);
+    download(zipBlob, `smudge-${ts}.zip`);
   };
   mediaRecorder.start(200);
   recording = true;
-  setRecBtn('⏹ Stop');
-}
-
-function dlBlob(blob, name) {
-  const url = URL.createObjectURL(blob);
-  Object.assign(document.createElement('a'), { href: url, download: name }).click();
-  URL.revokeObjectURL(url);
+  setRecBtn('Stop recording');
 }
 
 function stopRecording() {
@@ -1020,10 +918,11 @@ function stopRecording() {
   mediaRecorder.stop();
 }
 
-document.getElementById('recBtn').onclick = () =>
-  recording ? stopRecording() : startRecording();
-
 c2d.style.display='none';
+cgl.style.display='none'; // shown once an image is loaded
+paintBackground();
+showImageControls();
+// The picture the tool opened with; the file is not in the repo, so without it the hint shows.
 loadPixels('./Famous-Paintings.png');
 
 // ── Loop ─────────────────────────────────────────────────────────────────────

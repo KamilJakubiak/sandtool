@@ -1,0 +1,1597 @@
+/*
+  tool-ui: the look of every tool. Liquid glass, dark, closer to Apple's calm than to a developer's
+  control panel (owner, 2026-11-01: closer to what he wants to reach, not a copy of Apple).
+
+  The main view fills the window; the panel floats over it as a column of glass: on the right, or
+  at the bottom of a phone, where it folds away to its grabber.
+
+  - Plates stand on the picture: the tab bar and the cards (a group, or rows outside any group). A
+    plate blurs the picture behind it and bends it at its rim (src/glass.ts). Its own contents lie
+    on top and stay sharp. Over a dark picture the panel is dark glass with light text; over a
+    light one, light glass with dark text (src/backdrop.ts reads the picture under the panel and
+    sets .is-light on it: one state for all its plates), so it is glass on any picture and not a
+    grey slab on a white page.
+  - On a card, controls sit in rows: the name on the left, the value on the right. Nothing is
+    drawn between two rows; the room between them is their only separation (owner, 2026-11-01: a
+    hairline between the Random switch and the Alignment menu looked like a stray line).
+  - Pieces of glass on the plates: slider bars (lit up to their value), boxes to type into, buttons,
+    the switch, segments with the thumb under the chosen one, the color sample. What holds a value
+    is smoked glass; what is pressed or chosen is clear glass.
+  - Plates and pieces alike wear a hair of light along their edge: the reflection of a light from
+    above (full along the top, out at the sides, faintly thrown back at the bottom) and of a lamp
+    that hangs over the pointer, so the light shifts a little as the mouse moves (src/light.ts
+    draws it, from the tokens below).
+  - The plates scroll inside the window's whole height and run out at its edge as they are: no
+    fade and no shade there (owner, 2026-11-02: a plate thinning out into the picture "wygląda
+    dziwnie", a shade over it "bez tego czarnego po prostu do końca strony").
+  - Only plates bend what is behind them: a piece stands on a plate, which a browser does not let
+    it see through, and a lens on something as small as a thumb smeared the title on it.
+  - No shadows anywhere (owner, 2026-11-01). No color: what is on or chosen is lighter glass.
+
+  Every text sits --inset in from the edge of its box, and every row is a box, drawn or not: names,
+  titles, notes, typed text and values line up on both sides of a card.
+
+  Every card holds its bars --space in from its edge, and pieces lie --room apart. Set with the
+  owner over four tries (2026-11-01): cards at --room were too tight and at --inset too loose,
+  since the text inside a bar has its own --inset. The capsules hold their pieces --room in, like
+  the segments hold their thumb: the tab bar (at --space its thumb had twice the room of a
+  segment's) and the capsule beside the panel, as wide as the tab bar is tall (at --space it was
+  too big next to it); owner, 2026-11-01, the same evening.
+
+  Corners are concentric: a shape --space inside another has that one's radius minus --space, so
+  the curves run parallel: bars, boxes and buttons 9 (the widgets page's --radius-md), cards 15
+  (its --radius-lg), the capsule and the tab bar 21, segments 18 (capsules round their thumbs).
+  Small controls inside a row (switch, segments, color sample) are capsules, like the capsule's
+  buttons and the tab bar's thumb.
+
+  Touch (tablets, phones): rows are 44 px, Apple's least size for a finger, text is 16 px, so iOS
+  does not zoom into a field, and nothing waits for a hover.
+
+  Where the values come from: the widgets page (space, corners, line height, the springy release
+  of a button), the portfolio's glass (the lit edge, the fills, the lens, the phone breakpoint),
+  typecut's panel (text colors, the smoked glass), Apple (the switch's proportions,
+  the size for a finger). Values marked "proposal" have no source yet and are for the owner to set.
+*/
+
+@font-face {
+  font-family: "Faculty Glyphic";
+  src: url("fonts/FacultyGlyphic-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* The group titles' italic (--font-heading): Newsreader Italic set at one weight (470) and one
+   optical size (12.75: an 11 px title at Faculty's x-height is drawn about 12.7 px, as the browser
+   measures the x), cut to the characters Faculty Glyphic has. Checked against the variable font in
+   Chromium: the same pixels. */
+@font-face {
+  font-family: "Newsreader";
+  src: url("fonts/Newsreader-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 470;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Space and corners (widgets page) */
+  --space: 6px;
+  --space-tight: 3px;
+  --room: var(--space-tight); /* between two pieces (owner, 2026-11-01) */
+  --inset: calc(2 * var(--space)); /* text from the edge of its box (owner: room to read and type) */
+  --radius-piece: 9px; /* bars, boxes, buttons: the widgets page's --radius-md */
+  --radius-plate: calc(var(--radius-piece) + var(--space)); /* a card, concentric round its rows: 15, its --radius-lg */
+
+  /* Sizes (proposals, 2026-11-01). Text between typecut's 11 px (too small) and the widgets page's
+     15 px (too big); a row about as much taller than its text as on iOS (44 / 17), on the --space
+     grid; a small control in a row --space from its top and bottom. */
+  --text-size: 13px;
+  --text-size-small: 11px; /* typecut */
+  --line-height: 1.5; /* widgets page */
+  --row: 36px;
+  --control: calc(var(--row) - 2 * var(--space));
+  --pane-width: 320px;
+  /* The column on the right that every control beside a name fills, as wide and as aligned in every
+     row (owner, 2026-11-02: "taka sama szerokość, takie samo wyrównanie każdego"): boxes, segments,
+     a point's bars. A color's box only holds a code and ends where the column ends (Color). */
+  --value-width: 180px;
+  /* A hex code's text, "#rrggbb": the widest, "#000000", measured 7.2 ch in Faculty Glyphic. */
+  --hex-width: 7.5ch;
+  /* A color's menu (src/ui/picker.ts): over its row, seven tenths of a card (owner, 2026-11-02:
+     four fifths beside the panel, it should be "trochę mniejsze"; as narrow as the column, the HSB
+     bars cut "S 100 %", measured: they need 216 px), its field 3 : 2, the ring on it. Proposals,
+     2026-11-02. */
+  --picker-width: calc(var(--pane-width) * 7 / 10);
+  --picker-field: 3 / 2;
+  --picker-ring: 14px;
+  /* A title in a menu's list (src/ui/list.ts): lower than a row, as a menu is denser than a card,
+     on the --space grid. Proposal, 2026-11-02; a finger gets a whole row. */
+  --menu-row: 30px;
+  --area-lines: 2; /* a text area is never lower than this many lines */
+  --item-picture: calc(2 * var(--text-size) * var(--line-height)); /* a list item's picture: as tall as its two lines of text (proposal) */
+
+  /* The switch: iOS's proportions, a 27 knob in a 51 × 31 track */
+  --switch-width: calc(var(--control) * 51 / 31);
+  --knob-inset: calc(var(--control) * 2 / 31);
+
+  /* Text (typecut) */
+  --text-color: #c8c8c8;
+  --text-primary: #e0e0e0;
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-faint: rgba(255, 255, 255, 0.38); /* a placeholder (the portfolio's lit value) */
+  /* A group's title a little softer than the names under it, the names a little stronger, both
+     still below the values (owner, 2026-11-02, after the heading font trial: "jedno lekko
+     jaśniejsze, drugie lekko ciemniejsze by dodać subtelnie kontrastu"; the steps are proposals) */
+  --text-title: rgba(255, 255, 255, 0.45);
+  --text-name: rgba(255, 255, 255, 0.62);
+  --button-text-color: #e6e6e6;
+  /* Not pure black: on #000 the dark glass disappears (owner, 2026-11-01, chose #080808) */
+  --page-background: #080808;
+
+  /* Dark glass: the plates over a dark picture (the light ones are under .is-light below) */
+  --plate-tint: rgb(13 13 13 / 0.6); /* typecut's panel color, see-through: proposal */
+  /* A menu over the panel (a color's, a list): on dark glass its edge's light shows it; on light
+     glass see .is-light */
+  --menu-tint: var(--plate-tint);
+  --menu-lit: var(--glass-clear-on); /* the title under the pointer in a menu's list */
+  --plate-blur: 24px; /* proposal */
+  --glass-saturate: 1.5; /* portfolio */
+
+  /* Clear glass (portfolio): a barely visible fill that brightens under the pointer or a press,
+     and the lit part of a bar under the pointer */
+  --glass-clear: rgb(255 255 255 / 0.06);
+  --glass-clear-on: rgb(255 255 255 / 0.14);
+  --glass-clear-lit: rgb(255 255 255 / 0.2);
+  /* The switch: its track while on (the portfolio's lit value) and its knob (typecut's text) */
+  --glass-on: rgb(255 255 255 / 0.38);
+  --knob: #e0e0e0;
+
+  /* Smoked glass (typecut's monitor color) */
+  --smoke: rgba(0, 0, 0, 0.4);
+
+  /* The light on the edges (src/light.ts): a hair of light, --glass-dim of it all round, up to
+     --glass-lit more where an edge faces the light from above and --glass-back where it faces
+     away; and up to --glass-lamp more where it faces the lamp over the pointer: a soft disc
+     --lamp-size across, --lamp-height above the screen. The lamp follows the pointer with a lag
+     of --lamp-follow (the time to close most of the gap) and comes on and goes out over
+     --lamp-fade. The portfolio lit 0.38 / 0.05 / 0.14, lowered (owner, 2026-11-01: a lot of
+     light looks unnatural); the lamp's values are proposals, set with the owner the same day
+     (first "wręcz świeci": slower and weaker; then a little more visible and faster, and soft,
+     since a point light passing down the panel's many edges looked odd). */
+  --glass-hair: 1px;
+  --glass-dim: 0.04;
+  --glass-lit: 0.22;
+  --glass-back: 0.08;
+  --glass-lamp: 0.2;
+  /* Light glass (see .is-light): the light on the edges times --glass-gain, over a hair of
+     --glass-shade. On dark glass none and once: the light alone. */
+  --glass-gain: 1;
+  --glass-shade: transparent;
+  --lamp-height: 320px;
+  --lamp-size: 320px;
+  --lamp-follow: 0.28s;
+  --lamp-fade: 0.6s;
+
+  /* Motion: what slides moves with the widgets page's springy button release; a press lights the
+     glass at the portfolio's speed. The panel comes and goes over --d-show (owner, 2026-11-01):
+     the whole column of glass, capsule and plates in one piece, slides to the window's edge and
+     back, the plates passing out of the window, and slows into place without the bounce of
+     --e-slide, which over a slide as long as the panel is wide would be too much. A first try
+     that faded the plates where they stood, the capsule sliding alone, was weak (owner, the same
+     day): a fading plate loses its blur with its opacity, so the picture showed sharp through it,
+     and two motions did not read as one. The thumb under a tab or segment and the switch's knob
+     glide over --d-glide without the bounce too (owner, 2026-11-01: "nie chcemy bounce, chcemy
+     smooth subtle", then the same for the switch): they set off softly, are halfway at half the
+     time and slow into place. The panel's curve, tried first, covered half the way in a fifth of
+     the time and then crept, and read as a jerk (owner, the same day: "mało smooth"). Rows and
+     cards come and go on the same curve, over --d-fold (owner, 2026-11-01: "subtelną animację
+     fade out fade in, subtelnie, nowocześnie, smooth"; src/ui/motion.ts). Like the menus (owner,
+     2026-11-02: "wolałbym w takim stylu jak menu", on rows closing round their content like
+     drawers): what goes keeps its shape and gathers out where it stands over --d-swap, then its
+     room closes over --d-fold, --d-lead after it started; coming, the reverse. A group folding
+     does the same with its rows. Proposals, 2026-11-01 and 02. */
+  --d-slide: 180ms;
+  --e-slide: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --d-press: 0.1s;
+  --d-adapt: 0.3s; /* a plate turning from dark glass to light or back: proposal */
+  --d-show: 320ms;
+  --e-show: cubic-bezier(0.2, 0, 0, 1);
+  --d-glide: 300ms;
+  --e-glide: cubic-bezier(0.3, 0, 0.2, 1);
+  --d-fold: 300ms;
+  --d-lead: 70ms;
+  --e-fold: var(--e-glide);
+  /* A sign in the capsule giving way to the other (the chevron out or in, the sun or the moon):
+     the portfolio's dissolve between its spin and close buttons (owner, 2026-11-01), with its
+     curve, and its haze: a copy of the sign blurred by the button's size / 16. Its 0.45 s, with
+     the coming sign waiting out the first third, was too long here (owner, the same evening:
+     pressed quickly, the button showed no sign at all, and the chevron turned only after the
+     panel had slid): shorter than the slide, both signs at once. Proposal. */
+  --d-swap: 0.22s;
+  --e-dim: cubic-bezier(0.4, 0, 0.6, 1);
+  --blur-swap: calc(var(--row) / 16);
+
+  /* The interface font, with fallbacks for characters it lacks and for the moment before it loads */
+  --font-interface: "Faculty Glyphic", system-ui, sans-serif;
+  /* The group titles: an italic beside Faculty Glyphic, which has none, since at 11 px in Faculty a
+     title still read too much like the names under it (owner, 2026-11-02: "samo zmniejszenie nie
+     wystarcza"; Newsreader chosen from eight italics: "zostawiamy newsreader na tytułach"). Its
+     weight is the one whose grey comes closest to Faculty Regular's, measured in the files (at 400
+     it was "trochę cienki"). Drawn at Faculty's x-height (0.55 of the size, measured in its file),
+     so the title is smaller than the names by --text-size-small alone, not by the face. The face
+     and the weight are the owner's; the x-height match is a proposal of the trial he kept. */
+  --font-heading: "Newsreader", var(--font-interface);
+  --heading-weight: 470;
+  --heading-x-height: 0.55;
+  /* Room for letters that reach past their own place, kept inside every text cut short with "…":
+     Faculty Glyphic's g, j, p, q and y reach 0.28 em under the line, below its descent of 0.26 em
+     (which the browser also rounds down to whole pixels: 3 px of 3.4 at 13 px), and its J starts
+     0.09 em before its place; Newsreader Italic's j starts 0.21 em before and its f ends 0.23 em
+     after (measured in the font files, 2026-11-02). */
+  --ink-room: 0.25em;
+  /* A typed line. A field clips its text at its line (the browser's own box inside it), and
+     Faculty Glyphic's own line, its rounded ascent and descent (16 px at 13 px, 21 at 16), cuts
+     the g, j, p, q and y. This line is taller by an even number of pixels (4 at 13 px, 2 at 16),
+     since the browser puts half of the extra room above the text, rounded down: the text stays
+     where it was, to the pixel (measured in Chromium, 2026-11-02). */
+  --field-line: calc(var(--text-size) + 7px);
+
+  /* A short message in the middle of the main view (typecut) */
+  --hint-color: #6b6b6b;
+  --hint-size: 14px;
+
+  /* Files dragged over the main view (typecut) */
+  --drop-outline: 2px dashed #6b6b6b;
+  --drop-outline-offset: -8px;
+
+  /* Keyboard focus on the canvas (typecut) */
+  --focus-outline: 1px solid #3a3a3a;
+}
+
+/* A finger: Apple's least touch target, and text large enough that iOS does not zoom into a field
+   when it is typed into. */
+@media (pointer: coarse) {
+  :root {
+    --text-size: 16px;
+    --text-size-small: 13px;
+    --row: 44px;
+    /* The column was set to hold sandtool's video segments at 16 px ("VP9 WebM", "24 fps"; menus
+       since 2026-11-02, the width kept); the panel grows with
+       the text, 320 × 16 / 13, so the names keep their room beside it (a phone's sheet is as wide
+       as the screen anyway). */
+    --value-width: 206px;
+    --pane-width: 394px;
+    --menu-row: var(--row);
+  }
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body.tool {
+  overflow: hidden;
+  background: var(--page-background);
+  color: var(--text-color);
+  font-family: var(--font-interface);
+}
+
+/* Light glass chosen in the panel's bar: a light page under the tool's picture too (owner,
+   2026-11-01: the mode must change the canvas as well; a tool that paints its own background
+   hears of it through onThemeChange). */
+body.tool.is-light {
+  --page-background: #f7f7f7; /* not pure white, as the dark one is not pure black */
+}
+
+/* ── The main view ─────────────────────────────────────────────────────────────────────────── */
+
+/* The whole window: the panel floats over it. Tool.freeArea() says which part the panel leaves
+   free; --covered-right and --covered-bottom (set by src/shell.ts) say how much it covers. */
+.tool-view {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.tool-view canvas {
+  display: block;
+}
+
+.tool-view canvas:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: -1px;
+}
+
+.tool-view.dropping {
+  outline: var(--drop-outline);
+  outline-offset: var(--drop-outline-offset);
+}
+
+/* In the middle of the part of the view the panel leaves free. */
+.tool-hint {
+  position: absolute;
+  inset: 0 var(--covered-right, 0px) var(--covered-bottom, 0px) 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: var(--inset);
+  color: var(--hint-color);
+  font-size: var(--hint-size);
+  text-align: center;
+  pointer-events: none;
+}
+
+.tool-hint[hidden] {
+  display: none;
+}
+
+/* ── The panel ─────────────────────────────────────────────────────────────────────────────── */
+
+/* Only a place for the plates: as tall as they are, at most the window. They scroll inside the
+   window's whole height, 2 × --space in from its edges at rest, and run out at its edge as they
+   are. */
+.tool-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: calc(var(--pane-width) + 4 * var(--space));
+  max-height: 100%;
+  color: var(--text-primary);
+  font-size: var(--text-size);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  /* The panel is only a place: its page, grabber and capsule take the pointer, it does not, so
+     the picture under the sliver of it left in the window while hidden gets it. */
+  pointer-events: none;
+  transition: transform var(--d-show) var(--e-show);
+}
+
+.tool-panel > * {
+  pointer-events: auto;
+}
+
+/* Hidden: the whole column slides right by the panel's width less its page's 2 × --space, so the
+   capsule comes to rest 2 × --space from the window's edge, where the plates' edge was, and the
+   plates are out of the window. The column keeps its size and place in the
+   layout (a display: none would have shrunk the panel and made the capsule, which hangs off its
+   side, jump) and is only moved: a transform leaves the plates their picture, which an opacity
+   on the way would not (the rule in CLAUDE.md), so the glass bends the picture all the way out
+   and back. Once out, the page is not drawn, touched or focused (visibility turns at the end of
+   the slide out and at once on the way back, as a visibility transition does). On a phone the
+   sheet has no hidden state (below). */
+.tool-panel.is-hidden {
+  transform: translateX(calc(var(--pane-width) + 2 * var(--space)));
+}
+
+.tool-panel.is-hidden > .ui-page {
+  visibility: hidden;
+}
+
+/* The capsule beside the panel (src/shell.ts): at its top, on the side of the picture, as far
+   from the plates as they are from the window's edge, 2 × --space (owner, 2026-11-01: at 3 ×
+   --space it stood too far; nearer, like the room round the plates), two buttons of glass one
+   under the other, --row square with a 20 px sign (owner,
+   2026-11-01: the first ones were too small, and in the panel's own column): hide the panel,
+   turn the glass dark or light. Hidden, the panel is nothing but this capsule, come to rest at
+   the window's edge with both its buttons as they are (owner, 2026-11-01: the capsule should
+   stay the same; the glass button still turns the page dark or light). It rides with the panel
+   (.tool-panel.is-hidden above). */
+.tool-handle {
+  position: absolute;
+  top: calc(2 * var(--space));
+  right: 100%;
+}
+
+/* As wide as the tab bar is tall (owner, 2026-11-01: at --space round the buttons it was too big
+   next to the tab bar): the two are one capsule, standing and lying, holding their pieces --room
+   in. */
+.tool-handle-bar {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: calc(var(--row) + 2 * var(--room));
+  padding: var(--room);
+  border-radius: calc(var(--row) / 2 + var(--room));
+}
+
+.tool-panel .tool-handle-bar .tool-handle-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--row);
+  height: var(--row);
+  padding: 0;
+  border-radius: calc(var(--row) / 2);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--d-slide);
+}
+
+.tool-handle-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Each button holds two signs in the one place, one at a time, and both say what a press does:
+   the chevron points out of the window, and back in while the panel is hidden; the glass button
+   shows the glass a press turns it to, a sun on dark glass, a moon on light (owner, 2026-11-01:
+   showing the present look, a moon on dark, read the wrong way round). The one not in use is off
+   (--off: 1). */
+.tool-panel:not(.is-hidden) .tool-handle-hide .is-in,
+.tool-panel.is-hidden .tool-handle-hide .is-out,
+.tool-panel:not(.is-light) .tool-handle-theme .is-moon,
+.tool-panel.is-light .tool-handle-theme .is-sun {
+  --off: 1;
+}
+
+/* The changing of hands is the portfolio's, between its spin and close buttons (owner,
+   2026-11-01): the sign going loses its edges to a blur, shrinks a hair and dims out; the one
+   coming arrives out of the same haze, so the two are never both sharp. Both move at once, on
+   the same curve, so what one loses the other gains and the place is never empty, however fast
+   the presses come: a press in the middle sends both back from where they are. (The portfolio's
+   coming sign waited out the first third; every quick press restarted that wait, and the button
+   went blank.) No blur is animated: each sign lies over a copy of itself blurred once
+   (src/shell.ts), and the sharp one is taken off it, so only opacity and scale move, which a Mac
+   and Windows draw alike (the portfolio's lesson). */
+.tool-handle-sign {
+  --off: 0;
+  display: grid;
+  grid-area: 1 / 1;
+  place-items: center;
+  opacity: calc(1 - var(--off));
+  scale: calc(1 - 0.08 * var(--off));
+}
+
+.tool-handle-sign svg {
+  grid-area: 1 / 1;
+  opacity: calc(1 - var(--off));
+}
+
+.tool-handle-sign .tool-handle-haze {
+  opacity: var(--off);
+  filter: blur(var(--blur-swap));
+}
+
+.tool-handle-sign,
+.tool-handle-sign svg {
+  transition-property: opacity, scale;
+  transition-duration: var(--d-swap);
+  transition-timing-function: var(--e-dim);
+}
+
+/* Asked for less motion, the place still changes hands: the dissolve is not motion, only the hair
+   of a shrink under it (the portfolio's rule). */
+@media (prefers-reduced-motion: reduce) {
+  .tool-handle-sign {
+    scale: 1;
+  }
+}
+
+.tool-panel > .ui-page {
+  min-height: 0;
+  padding: calc(2 * var(--space));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--smoke) transparent;
+  transition: visibility var(--d-show);
+}
+
+/* The grabber: shown on a phone only, above the plates; a press folds them away or brings them
+   back. A small capsule of glass, so it reads on any picture. */
+.tool-grabber {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: var(--row);
+  cursor: pointer;
+}
+
+.tool-grabber-mark {
+  width: var(--row);
+  height: var(--space);
+  border-radius: var(--space-tight);
+}
+
+/* A phone held upright, and any window as narrow (the portfolio's breakpoint): the panel is a
+   sheet across the bottom, at most half the screen, clear of the iPhone's home indicator. */
+@media (max-width: 40rem) {
+  .tool-panel {
+    top: auto;
+    left: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 50vh;
+    max-height: 50dvh;
+  }
+
+  .tool-panel > .ui-page {
+    padding-top: 0;
+    padding-bottom: max(calc(2 * var(--space)), env(safe-area-inset-bottom));
+  }
+
+  .tool-grabber {
+    display: flex;
+  }
+
+  /* The sheet has its grabber instead of the capsule: the grabber folds it, and hidden means
+     nothing to it. */
+  .tool-handle {
+    display: none;
+  }
+
+  .tool-panel.is-hidden {
+    transform: none;
+  }
+
+  .tool-panel.is-hidden > .ui-page {
+    visibility: visible;
+  }
+
+  .tool-panel.is-folded > .ui-page {
+    display: none;
+  }
+}
+
+.ui-page,
+.ui-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+/* Hidden is hidden, whatever display a kind of row sets for itself further down (an empty note
+   kept its room in typecut's File card: .ui-row.is-note came later and won). */
+.ui-page[hidden],
+.ui-tabs[hidden],
+.ui-card[hidden],
+.ui-row[hidden],
+.ui-thumb[hidden] {
+  display: none !important;
+}
+
+/* The parts of a control are the browser's own buttons and boxes, without their look. (In
+   :where(), so any rule of a control's own wins over this one.) No ring marks the control that has
+   the keyboard (owner, 2026-11-01: "to zaznaczenie jest niepotrzebne"). */
+:where(.tool-panel) :where(button, input, select, textarea) {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.tool-panel input,
+.tool-panel textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ── Glass ─────────────────────────────────────────────────────────────────────────────────── */
+
+/* Plates: the lens (--lens, set by src/glass.ts) bends the blurred picture at the rim. No shadow:
+   glass casts none, and the portfolio's hair of shadow inside the edge drew a dirty outline round
+   every plate on a light picture (measured: 2 px darker than the plate). The text color is set
+   here, not on the panel, so a light plate can turn it. */
+.ui-plate {
+  position: relative;
+  background: var(--plate-tint);
+  backdrop-filter: blur(var(--plate-blur)) var(--lens, ) saturate(var(--glass-saturate));
+  color: var(--text-primary);
+  transition:
+    background-color var(--d-adapt),
+    color var(--d-adapt);
+}
+
+/* Light glass: the panel over a light picture (src/backdrop.ts). The same glass seen the other
+   way round: a light tint, dark text, smoked glass a shade darker than the plate and clear glass
+   lighter. Proposals, 2026-11-01. */
+.tool-panel.is-light {
+  --plate-tint: rgb(225 225 225 / 0.6);
+  /* The edges: white light on light glass showed nothing, where on dark glass it draws every
+     edge (owner, 2026-11-02, on the eyedropper: "light mode ma problem z tym że ta krawędź jest
+     niewidoczna a w darkmode bardzo ładnie się eksponuje"). Glass in a light room: its edge is a
+     darker hair, and where it faces a light the hair is lit, white where the light is strong. So
+     a hair of dark under the light, and the light stronger, so it shows over the hair. Not a
+     shadow: nothing outside the edge. A hair of 0.16 was too much ("zbyt widoczne, mało
+     naturalnie", then "nie są złe ale muszą być delikatniejsze trochę"): halved. Proposals. */
+  --glass-shade: rgb(0 0 0 / 0.08);
+  --glass-gain: 2;
+  /* A menu over the panel: whiter than the plates under it, so it stands out from them without a
+     shadow (owner, 2026-11-02: "w lightmode … za bardzo się zlewa, nie widać krawędzi"); its edge
+     is the hair above. The lit title a shade darker, as smoked glass is here: white glass under
+     the pointer on a white menu showed nothing ("light mode też za bardzo nadal to wszystko się
+     zlewa"). Proposals. */
+  --menu-tint: rgb(255 255 255 / 0.8);
+  --menu-lit: rgb(0 0 0 / 0.07);
+  --text-primary: #1c1c1c;
+  --text-secondary: rgba(0, 0, 0, 0.55);
+  --text-faint: rgba(0, 0, 0, 0.35);
+  --text-title: rgba(0, 0, 0, 0.45);
+  --text-name: rgba(0, 0, 0, 0.62);
+  --button-text-color: #1a1a1a;
+  --smoke: rgba(0, 0, 0, 0.08);
+  --glass-clear: rgb(255 255 255 / 0.55);
+  --glass-clear-on: rgb(255 255 255 / 0.9);
+  --glass-clear-lit: rgb(255 255 255 / 1);
+  --glass-on: rgb(0 0 0 / 0.35);
+  --knob: #ffffff; /* iOS: a white knob on a grey track */
+}
+
+.ui-piece {
+  position: relative;
+}
+
+/* The light on the edge of every plate and piece: the gradient src/light.ts sets on the element
+   (--rim; its ::before gets it as any inherited value), and until it has, the light from above
+   alone; on light glass over the hair of --glass-shade. */
+.ui-plate::before,
+.ui-piece::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: var(--glass-hair);
+  background:
+    var(
+      --rim,
+      conic-gradient(
+        rgb(255 255 255 / calc((var(--glass-dim) + var(--glass-lit)) * var(--glass-gain))) 0deg,
+        rgb(255 255 255 / calc((var(--glass-dim) + var(--glass-lit) * 0.5) * var(--glass-gain))) 45deg,
+        rgb(255 255 255 / calc(var(--glass-dim) * var(--glass-gain))) 90deg,
+        rgb(255 255 255 / calc((var(--glass-dim) + var(--glass-back) * 0.5) * var(--glass-gain))) 135deg,
+        rgb(255 255 255 / calc((var(--glass-dim) + var(--glass-back)) * var(--glass-gain))) 180deg,
+        rgb(255 255 255 / calc((var(--glass-dim) + var(--glass-back) * 0.5) * var(--glass-gain))) 225deg,
+        rgb(255 255 255 / calc(var(--glass-dim) * var(--glass-gain))) 270deg,
+        rgb(255 255 255 / calc((var(--glass-dim) + var(--glass-lit) * 0.5) * var(--glass-gain))) 315deg,
+        rgb(255 255 255 / calc((var(--glass-dim) + var(--glass-lit)) * var(--glass-gain))) 360deg
+      )
+    ),
+    linear-gradient(var(--glass-shade) 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* A plate coming or going over the panel (a menu, src/ui/motion.ts grow): its glass gathers from
+   none, --appear going from 0 to 1. Its blur and saturation, its tint, its lit edge and its pieces
+   follow it; the plate itself gets no opacity. The lens waits for the end: at once over a picture
+   not yet blurred, it would draw a bent ring before anything else is there. */
+@property --appear {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+.ui-plate.is-appearing {
+  background: color-mix(in srgb, var(--plate-tint) calc(var(--appear) * 100%), transparent);
+  backdrop-filter: blur(calc(var(--plate-blur) * var(--appear)))
+    saturate(calc(1 + (var(--glass-saturate) - 1) * var(--appear)));
+  transition: none;
+}
+
+.ui-plate.is-appearing::before,
+.ui-plate.is-appearing > * {
+  opacity: var(--appear);
+}
+
+/* The menus over the panel: their own tint (--menu-tint). */
+.ui-picker,
+.ui-list {
+  --plate-tint: var(--menu-tint);
+}
+
+/* ── Cards and rows ────────────────────────────────────────────────────────────────────────── */
+
+/* A card: its rows --space in from its edge, like every plate, and --room apart. */
+.ui-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--room);
+  padding: var(--space);
+  border-radius: var(--radius-plate);
+}
+
+/* A group's title: inside its card, where it reads on any picture. Every group folds (owner,
+   2026-11-02): a press on its title folds it, with a chevron at the end of the title's line. */
+.ui-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  margin: 0;
+  padding: 0 var(--inset);
+  color: var(--text-title);
+  font: inherit;
+  font-family: var(--font-heading);
+  font-size: var(--text-size-small);
+  font-size-adjust: var(--heading-x-height);
+  font-style: italic;
+  font-weight: var(--heading-weight);
+  /* Not a slanted, thickened Faculty Glyphic for the moment before Newsreader loads */
+  font-synthesis: none;
+  line-height: var(--control);
+  min-height: var(--control);
+  cursor: pointer;
+}
+
+.ui-heading-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-fold-mark {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  transition: transform var(--d-slide) var(--e-slide);
+}
+
+.ui-heading[aria-expanded="false"] .ui-fold-mark {
+  transform: rotate(-90deg);
+}
+
+.ui-card.is-folded > .ui-row {
+  display: none;
+}
+
+.ui-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  box-sizing: border-box;
+  min-height: var(--row);
+  padding: 0 var(--inset);
+}
+
+/* Bars, boxes, buttons across the card: the card's own space round them, nothing more. */
+.ui-row.is-bar {
+  padding: 0;
+}
+
+/* Rows with a control as tall as a bar beside their name (segments, boxes): the control's right
+   edge where a bar's is. */
+.ui-row.is-tall {
+  padding: 0 0 0 var(--inset);
+}
+
+.ui-row.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* A row or a card coming or going (src/ui/motion.ts): it keeps its shape, gathering in or out
+   where it stands, out of the pointer's way. */
+.ui-row.is-moving,
+.ui-card.is-moving {
+  pointer-events: none;
+}
+
+/* A group folding or opening (src/ui/motion.ts fold): the card closes round its rows, which keep
+   their size and are cut at its edge. */
+.ui-card.is-folding {
+  box-sizing: border-box;
+  overflow: clip;
+}
+
+.ui-card.is-folding > .ui-row {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.ui-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-name);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Text cut short with "…" is clipped at its box, and some letters reach past their place (see
+   --ink-room; owner, 2026-11-02: "g jest ucięte od dołu"): the box is --ink-room bigger on every
+   side and its margin gives the room back, so the text and everything round it stay where they
+   were, to the pixel (a taller line-height moved the text by 0.75 px). A menu's titles get the
+   same, since its list is placed by the shown value's box (src/ui/list.ts). */
+.ui-heading-title,
+.ui-label,
+.ui-menu-value,
+.ui-option-title,
+.ui-item-title {
+  margin: calc(-1 * var(--ink-room));
+  padding: var(--ink-room);
+}
+
+/* A value only shown, on the right of a row. */
+.ui-value {
+  flex: 0 1 var(--value-width);
+  box-sizing: border-box;
+  min-width: 0;
+  height: var(--control);
+  color: var(--text-primary);
+  line-height: var(--control);
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.ui-value.is-shown {
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Two bars side by side (a point's X and Y, src/ui/slider.ts), --room apart like any two pieces. */
+.ui-pair {
+  display: flex;
+  flex: 0 0 var(--value-width);
+  gap: var(--room);
+  min-width: 0;
+}
+
+.ui-pair > .ui-bar {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* A note: secondary text across the row, wrapping. */
+.ui-row.is-note {
+  display: block;
+  min-height: 0;
+  padding: var(--space) var(--inset);
+  color: var(--text-secondary);
+  line-height: var(--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A note asking the user for something now (Note.strong): in the color of names and values. */
+.ui-row.is-note.is-strong {
+  color: var(--text-primary);
+}
+
+/* An item in a list (typecut's sources): its picture, then its title on one line, cut short with
+   "…", and its detail under it. The picture keeps its own proportions inside a square box; the
+   empty box is smoked glass until the tool gives it a picture. Corners --space-tight: proposal. */
+.ui-row.is-item {
+  gap: var(--inset);
+  padding: var(--space) var(--inset);
+}
+
+.ui-item-picture {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--item-picture);
+  height: var(--item-picture);
+  border-radius: var(--space-tight);
+}
+
+.ui-item-picture.is-empty {
+  background: var(--smoke);
+}
+
+.ui-item-picture canvas {
+  display: block;
+  border-radius: var(--space-tight);
+}
+
+.ui-item-picture.is-empty canvas,
+.ui-item-detail[hidden] {
+  display: none;
+}
+
+.ui-item-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0; /* lets the title be cut short */
+  line-height: var(--line-height);
+}
+
+.ui-item-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-item-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space);
+  color: var(--text-secondary);
+}
+
+.ui-item-detail-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The ring before an item's status while its thing is under way (Item.progress): as tall as the
+   text, centered on its first line, its line 2 px of 14 (owner, 2026-11-02: "lekko grubsze" than
+   the panel's 1.5 px). The full circle faint, the part done in the text's color, from the top,
+   clockwise, gliding to each new value. The faint circle's strength: proposal. */
+.ui-item-progress {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin-block: calc((var(--line-height) - 1) * 0.5em);
+  rotate: -90deg;
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 2;
+}
+
+.ui-item-progress[hidden] {
+  display: none;
+}
+
+.ui-item-progress-track {
+  opacity: 0.2;
+}
+
+.ui-item-progress-done {
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--d-glide) var(--e-glide);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-item-progress-done {
+    transition: none;
+  }
+}
+
+/* An item to press (Item.pressable): lit while pressed, like a button, and the one chosen stays
+   lit; under a mouse it lights a little (see "Under a mouse"). Corners of a piece; no focus ring,
+   like the buttons. */
+.ui-row.is-item.is-pressable {
+  border-radius: var(--radius-piece);
+  cursor: pointer;
+  outline: none;
+  transition: background-color var(--d-press);
+}
+
+.ui-row.is-item.is-pressable:active,
+.ui-row.is-item.is-chosen {
+  background: var(--glass-clear-on);
+}
+
+/* ── Boxes to type into ────────────────────────────────────────────────────────────────────── */
+
+/* Smoked glass as tall as a slider's bar: text from the left, numbers to the right. A press
+   anywhere in it puts the caret in its field. Typing leaves the box as it is: the caret is enough
+   (owner, 2026-11-01). */
+.ui-box {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--space);
+  box-sizing: border-box;
+  min-width: 0;
+  height: var(--row);
+  padding: 0 var(--inset);
+  border-radius: var(--radius-piece);
+  background: var(--smoke);
+  cursor: text;
+}
+
+/* In the column: as wide as every other control there, even beside a long name, which is cut short
+   instead, so every control lines up. */
+.ui-row > .ui-box {
+  flex: 0 0 var(--value-width);
+}
+
+/* A field as tall as its box, stretched rather than given a height, since a field with a height
+   of its own gets the font's own line and clips its text there (see --field-line). */
+.tool-panel .ui-box > .ui-value {
+  flex: 1 1 auto;
+  align-self: stretch;
+  height: auto;
+  line-height: var(--field-line);
+}
+
+.tool-panel .ui-box > .ui-value.is-text {
+  text-align: left;
+}
+
+/* A number's box and its unit (src/ui/control.ts, withUnit): the number to the right, the unit
+   right after it, so "°" or " %" stays while the bare number is typed (owner, 2026-11-01: the
+   degrees went away on typing). Not typing, the box shows the whole formatted value itself. */
+.ui-typed {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
+
+.tool-panel .ui-typed > .ui-value {
+  flex: 1 1 auto;
+  align-self: stretch;
+  height: auto;
+  line-height: var(--field-line);
+}
+
+.ui-unit {
+  flex: none;
+  color: var(--text-primary);
+  line-height: normal;
+  white-space: pre;
+}
+
+.ui-value:not(:focus) + .ui-unit {
+  display: none;
+}
+
+/* A text area: across the card, its name at the top, the text under it; it grows with the text
+   and is never lower than --area-lines. The name is as big as every other control's name, so it
+   does not read as the group's title above it (owner, 2026-11-01). */
+.ui-row > .ui-box.is-area {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-tight);
+  height: auto;
+  padding: var(--inset);
+}
+
+.ui-box-name {
+  color: var(--text-name);
+  line-height: var(--line-height);
+}
+
+.tool-panel .ui-area {
+  width: 100%;
+  min-height: calc(var(--area-lines) * var(--line-height) * 1em);
+  overflow: hidden;
+  color: var(--text-primary);
+  line-height: var(--line-height);
+  overflow-wrap: anywhere;
+  resize: none;
+}
+
+.tool-panel ::placeholder {
+  color: var(--text-faint);
+}
+
+/* ── Sliders and progress ──────────────────────────────────────────────────────────────────── */
+
+/* One bar of smoked glass across the row, its name inside on the left, its value on the right,
+   lit from the left up to the value (owner's example, 2026-11-01: "Face width 1.00"). A finger
+   moving up and down on it scrolls the panel; only a sideways move slides it (src/ui/slider.ts). */
+.ui-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--row);
+  overflow: hidden;
+  border-radius: var(--radius-piece);
+  background: var(--smoke);
+  cursor: ew-resize;
+  touch-action: pan-y;
+  outline: none;
+}
+
+.ui-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--glass-clear-on);
+  transition: background-color var(--d-press);
+}
+
+.ui-bar-name {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Room for its letters above and under it (see "Text cut short"); on its left, the bar's own */
+  margin-block: calc(-1 * var(--ink-room));
+  padding: var(--ink-room) 0 var(--ink-room) var(--inset);
+  overflow: hidden;
+  color: var(--text-name);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The number on the right of a bar: only as wide and as tall as its text, so a slider's number
+   answers a press on itself and nowhere around it (owner, 2026-11-01); the room round it is the
+   bar's. */
+.tool-panel .ui-bar > .ui-value {
+  position: relative;
+  flex: none;
+  height: auto;
+  margin: 0 var(--inset) 0 var(--space);
+  line-height: normal;
+}
+
+.ui-bar:not(.is-progress) > .ui-value {
+  cursor: text;
+}
+
+/* The box a slider's number is typed into, with its unit, over the right end of the bar while
+   typing: clear, so the bar stays as it was and only the caret shows (owner, 2026-11-01). */
+.tool-panel .ui-bar > .ui-typed {
+  position: absolute;
+  top: 0;
+  right: 0;
+  box-sizing: border-box;
+  width: calc(2 * var(--row));
+  height: 100%;
+  padding-right: var(--inset);
+}
+
+.ui-bar:not(.is-typing) > .ui-typed {
+  display: none;
+}
+
+.ui-bar.is-typing > .ui-value {
+  visibility: hidden;
+}
+
+/* Progress: a bar that only shows how far something has come, e.g. an export. */
+.ui-bar.is-progress {
+  cursor: default;
+}
+
+.ui-bar.is-progress .ui-bar-fill {
+  transition: width var(--d-slide);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────────────────────── */
+
+.tool-panel .ui-button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--row);
+  padding: 0 var(--inset);
+  overflow: hidden;
+  border-radius: var(--radius-piece);
+  background: var(--glass-clear);
+  color: var(--button-text-color);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--d-press);
+}
+
+.tool-panel .ui-button:active {
+  background: var(--glass-clear-on);
+}
+
+.tool-panel .ui-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Several buttons in one row, side by side, --room apart like any two pieces. */
+.ui-row.is-buttons {
+  gap: var(--room);
+}
+
+/* ── The switch ────────────────────────────────────────────────────────────────────────────── */
+
+.tool-panel .ui-switch {
+  flex: none;
+  width: var(--switch-width);
+  height: var(--control);
+  border-radius: calc(var(--control) / 2);
+  background: var(--smoke);
+  cursor: pointer;
+  transition: background-color var(--d-glide) var(--e-glide);
+}
+
+.tool-panel .ui-switch[aria-checked="true"] {
+  background: var(--glass-on);
+}
+
+.ui-switch-knob {
+  position: absolute;
+  top: var(--knob-inset);
+  left: var(--knob-inset);
+  width: calc(var(--control) - 2 * var(--knob-inset));
+  height: calc(var(--control) - 2 * var(--knob-inset));
+  border-radius: 50%;
+  background: var(--knob);
+  transition: transform var(--d-glide) var(--e-glide);
+}
+
+.ui-switch[aria-checked="true"] .ui-switch-knob {
+  transform: translateX(calc(var(--switch-width) - var(--control)));
+}
+
+.ui-row.is-toggle .ui-label {
+  cursor: pointer;
+}
+
+/* ── Segments and tabs ─────────────────────────────────────────────────────────────────────── */
+
+/* Smoked glass with the choices in it and clear glass under the chosen one (src/ui/choice.ts). As
+   tall as a slider's bar (owner, 2026-11-01: "musi być wyższe jak slidery") and a capsule like the
+   tab bar, with the thumb a capsule concentric inside it (owner, 2026-11-01: the two are one style,
+   and the full round looks better). */
+.ui-segments {
+  display: flex;
+  flex: 0 0 var(--value-width);
+  box-sizing: border-box;
+  height: var(--row);
+  padding: var(--room);
+  border-radius: calc(var(--row) / 2);
+  background: var(--smoke);
+}
+
+/* The tab bar is the capsule beside the panel laid on its side, with tabs as tall as the capsule's
+   buttons and the thumb a capsule like them, held --room in, as the segments hold their thumb, so
+   the two look alike (owner, 2026-11-01: at --space the tab bar had too much room round its thumb
+   next to a segment). */
+.ui-tab-bar {
+  display: flex;
+  flex: none;
+  box-sizing: border-box;
+  height: calc(var(--row) + 2 * var(--room));
+  padding: var(--room);
+  border-radius: calc(var(--row) / 2 + var(--room));
+}
+
+.tool-panel .ui-segment,
+.tool-panel .ui-tab {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 var(--space);
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--d-glide) var(--e-glide);
+}
+
+.tool-panel .ui-segment[aria-checked="true"],
+.tool-panel .ui-tab[aria-selected="true"] {
+  color: var(--text-primary);
+}
+
+/* A drawn sign in place of a segment's title, as big as the signs in the capsule beside the panel
+   (20 px): every sign is drawn in the same box, centered in its segment. */
+.ui-segment > svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 0 auto;
+}
+
+.ui-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: calc(var(--row) / 2 - var(--room));
+  background: var(--glass-clear-on);
+  pointer-events: none;
+}
+
+.ui-tab-bar > .ui-thumb {
+  border-radius: calc(var(--row) / 2);
+}
+
+.ui-thumb[data-placed] {
+  transition:
+    transform var(--d-glide) var(--e-glide),
+    width var(--d-glide) var(--e-glide),
+    height var(--d-glide) var(--e-glide);
+}
+
+/* ── Menus ─────────────────────────────────────────────────────────────────────────────────── */
+
+/* The chosen value with ⌃⌄ beside it; a press opens the menu's list over it. */
+.ui-menu {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space);
+  min-width: 0;
+  height: var(--control);
+  cursor: pointer;
+}
+
+.ui-menu-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-menu-mark {
+  flex: none;
+  width: calc(1em * 10 / 14);
+  height: 1em;
+  color: var(--text-secondary);
+}
+
+/* While the list is open its chosen title stands where the value was: the value would show
+   through the glass a second time. */
+.ui-menu[aria-expanded="true"] > * {
+  opacity: 0;
+}
+
+/* A menu's list (src/ui/list.ts), our own rather than the system's, which differs on every system
+   and looked far worse on Windows (owner, 2026-11-02): a plate of its own over the menu's value,
+   as wide as its longest title. The titles lie one under another with no room between them, --space
+   in from the plate's edge as a card's rows are; the one under the pointer or the keyboard is lit
+   as clear glass with a piece's corners, concentric in the plate; ✓ by the chosen one. A list too
+   long for the window scrolls inside the plate, its edge and light staying put. */
+.ui-list {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: max-content;
+  max-height: calc(100vh - 4 * var(--space));
+  max-height: calc(100dvh - 4 * var(--space));
+  overflow: hidden;
+  border-radius: var(--radius-plate);
+  outline: none;
+}
+
+.ui-list[hidden] {
+  display: none;
+}
+
+.ui-list-scroller {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.ui-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  height: var(--menu-row);
+  padding: 0 var(--inset);
+  border-radius: var(--radius-piece);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-option.is-lit,
+.ui-option:active {
+  background: var(--menu-lit);
+}
+
+.ui-option-check {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  visibility: hidden;
+}
+
+.ui-option[aria-selected="true"] > .ui-option-check {
+  visibility: visible;
+}
+
+/* ── Color ─────────────────────────────────────────────────────────────────────────────────── */
+
+/* A color on one row (owner, 2026-11-02: one line, only the hex code on it): its name, and at the
+   right its round sample, as tall as a bar, and the hex code in a box, --room apart like any two
+   pieces. The box is as wide as a code ("#rrggbb"), not the whole column: filled, the column
+   always ended in an empty stretch (owner, the same day: "nie musi być takie długie, jak jest
+   tylko hex"). The box ends where every column ends. The sample opens the color's menu
+   (src/ui/color.ts, src/ui/picker.ts). */
+.ui-row.is-color > .ui-swatch {
+  margin-right: calc(var(--room) - var(--space));
+}
+
+.ui-row.is-color > .ui-box {
+  flex: none;
+  width: calc(var(--hex-width) + 2 * var(--inset));
+}
+
+.tool-panel .ui-swatch {
+  flex: none;
+  width: var(--row);
+  height: var(--row);
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: pointer;
+}
+
+/* The color's menu: a plate of its own beside the panel (or over its row on a phone), its pieces
+   --room apart and --space in from its edge like a card's. src/ui/picker.ts places it and grows it
+   out of the color's sample. */
+.ui-picker {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--room);
+  box-sizing: border-box;
+  width: var(--picker-width);
+  padding: var(--space);
+  border-radius: var(--radius-plate);
+}
+
+.ui-picker[hidden] {
+  display: none;
+}
+
+/* The field: white to the hue across, to black down, as every color picker draws it. The ring's
+   middle keeps --picker-end in from the edge, so the whole ring stays on the field (owner,
+   2026-11-02, on the ring half out at a corner: "za daleko wychodzi … dziwnie to wygląda"), as
+   the hue's knob is held --room in; the colors run between the same two ends, so the ring always
+   stands on its own color. */
+.ui-picker-field {
+  --picker-end: calc(var(--room) + var(--picker-ring) / 2);
+  aspect-ratio: var(--picker-field);
+  border-radius: var(--radius-piece);
+  background:
+    linear-gradient(to top, #000 var(--picker-end), transparent calc(100% - var(--picker-end))),
+    linear-gradient(to right, #fff var(--picker-end), transparent calc(100% - var(--picker-end))),
+    var(--picker-hue);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* The ring on the field and the knob on the hue: white with a dark hair outside it, so they read
+   on any color (proposal). */
+.ui-picker-ring,
+.ui-picker-knob {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  outline: 1px solid rgb(0 0 0 / 0.3);
+  pointer-events: none;
+}
+
+.ui-picker-ring {
+  top: calc(var(--picker-end) + (100% - 2 * var(--picker-end)) * (100 - var(--picker-b)) / 100);
+  left: calc(var(--picker-end) + (100% - 2 * var(--picker-end)) * var(--picker-s) / 100);
+  width: var(--picker-ring);
+  height: var(--picker-ring);
+  margin: calc(var(--picker-ring) / -2);
+  background: var(--swatch);
+}
+
+/* The eyedropper, a round button on smoked glass as the segments and the box under it are (owner,
+   2026-11-02: "żeby było spójnie to ta ikona pickera musi mieć takie tło szare jak reszta"), and
+   the hue beside it. */
+.ui-picker-line {
+  display: flex;
+  gap: var(--room);
+}
+
+.tool-panel .ui-picker-dropper {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--row);
+  height: var(--row);
+  border-radius: 50%;
+  background: var(--smoke);
+  color: var(--button-text-color);
+  cursor: pointer;
+  transition: background-color var(--d-press);
+}
+
+.tool-panel .ui-picker-dropper:active {
+  background: var(--glass-clear-on);
+}
+
+.ui-picker-dropper > svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* The hue: a capsule as tall as a bar, every hue along the path of the knob's middle, the knob
+   held --room in as a segment's thumb is. */
+.ui-picker-hue {
+  flex: 1 1 auto;
+  height: var(--row);
+  border-radius: calc(var(--row) / 2);
+  background: linear-gradient(
+    to right,
+    #f00 calc(var(--row) / 2),
+    #ff0 calc(var(--row) / 2 + (100% - var(--row)) / 6),
+    #0f0 calc(var(--row) / 2 + (100% - var(--row)) * 2 / 6),
+    #0ff calc(var(--row) / 2 + (100% - var(--row)) * 3 / 6),
+    #00f calc(var(--row) / 2 + (100% - var(--row)) * 4 / 6),
+    #f0f calc(var(--row) / 2 + (100% - var(--row)) * 5 / 6),
+    #f00 calc(100% - var(--row) / 2)
+  );
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.ui-picker-knob {
+  top: var(--room);
+  left: calc(var(--room) + (100% - var(--row)) * var(--picker-at));
+  width: calc(var(--row) - 2 * var(--room));
+  height: calc(var(--row) - 2 * var(--room));
+  background: var(--picker-hue);
+}
+
+/* The format: segments across the menu, without the name a row has beside them. */
+.ui-picker > .ui-row {
+  min-height: 0;
+  padding: 0;
+}
+
+.ui-picker > .ui-row > .ui-label {
+  display: none;
+}
+
+.ui-picker .ui-segments {
+  flex: 1 1 auto;
+}
+
+/* The value: the hex code's box, or three bars side by side. */
+.ui-picker-values {
+  display: flex;
+  gap: var(--room);
+}
+
+.ui-picker-values > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ── Under a mouse ─────────────────────────────────────────────────────────────────────────── */
+
+/* Only where there is a pointer that hovers: on a touch screen a hover stays lit after the finger
+   has gone. */
+@media (hover: hover) {
+  .ui-bar:not(.is-progress):hover .ui-bar-fill {
+    background: var(--glass-clear-lit);
+  }
+
+  .ui-box:hover {
+    background: var(--glass-clear);
+  }
+
+  .tool-panel .ui-button:not(:disabled):hover {
+    background: var(--glass-clear-on);
+  }
+
+  .ui-row.is-item.is-pressable:not(.is-chosen):hover {
+    background: var(--glass-clear);
+  }
+
+  .tool-panel .ui-picker-dropper:not(:active):hover {
+    background: var(--glass-clear);
+  }
+
+  .ui-menu:hover .ui-menu-value,
+  .ui-heading:hover {
+    color: var(--text-primary);
+  }
+
+  .tool-panel .tool-handle-bar .tool-handle-button:hover {
+    color: var(--text-primary);
+  }
+}
